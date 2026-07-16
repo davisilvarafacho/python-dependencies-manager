@@ -11,10 +11,12 @@ suite('searchPypiPackages', () => {
 		assert.deepStrictEqual(await searchPypiPackages('   '), []);
 	});
 
-	test('django- name search returns at least 50 matching names from simple index', async function () {
+	test('django- returns only names starting with django- (prefix)', async function () {
 		this.timeout(180_000);
 		try {
-			const names = await searchPackageNamesFromSimpleIndex('django-', DEFAULT_SEARCH_LIMIT);
+			const names = await searchPackageNamesFromSimpleIndex('django-', DEFAULT_SEARCH_LIMIT, {
+				prefixOnly: true,
+			});
 			if (names.length === 0) {
 				this.skip();
 			}
@@ -24,15 +26,37 @@ suite('searchPypiPackages', () => {
 			);
 			for (const name of names) {
 				assert.ok(
-					name.toLowerCase().includes('django-'),
-					`expected name to include django-: ${name}`,
+					name.toLowerCase().startsWith('django-'),
+					`expected prefix django-: ${name}`,
 				);
 			}
-			// Prefer prefix matches first
-			const prefixCount = names.filter((n) => n.toLowerCase().startsWith('django-')).length;
-			assert.ok(prefixCount > 0, 'expected some names starting with django-');
 		} catch (err) {
-			// Network failures in CI/dev should not hard-fail the suite
+			if (err instanceof Error && /timeout|ENOTFOUND|ECONN|HTTP/i.test(err.message)) {
+				this.skip();
+			}
+			throw err;
+		}
+	});
+
+	test('excludeNames omits installed packages', async function () {
+		this.timeout(180_000);
+		try {
+			const without = await searchPackageNamesFromSimpleIndex('django-', 20, {
+				prefixOnly: true,
+			});
+			if (without.length === 0) {
+				this.skip();
+			}
+			const banned = without[0].toLowerCase();
+			const withExclude = await searchPackageNamesFromSimpleIndex('django-', 20, {
+				prefixOnly: true,
+				excludeNames: new Set([banned]),
+			});
+			assert.ok(
+				!withExclude.some((n) => n.toLowerCase() === banned),
+				`excluded package still present: ${banned}`,
+			);
+		} catch (err) {
 			if (err instanceof Error && /timeout|ENOTFOUND|ECONN|HTTP/i.test(err.message)) {
 				this.skip();
 			}
@@ -43,11 +67,11 @@ suite('searchPypiPackages', () => {
 	test('searchPypiPackages enriches versions for a small known query', async function () {
 		this.timeout(60_000);
 		try {
-			const hits = await searchPypiPackages('requests', 5);
+			const hits = await searchPypiPackages('requests', { limit: 5, prefixOnly: true });
 			if (hits.length === 0) {
 				this.skip();
 			}
-			assert.ok(hits.some((h) => h.name.toLowerCase().includes('requests')));
+			assert.ok(hits.some((h) => h.name.toLowerCase().startsWith('requests')));
 			assert.ok(hits[0].version.length > 0);
 		} catch {
 			this.skip();

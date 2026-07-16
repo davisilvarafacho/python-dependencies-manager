@@ -1,4 +1,5 @@
 import * as https from 'https';
+import * as http from 'http';
 
 export type PypiPackageHit = {
 	name: string;
@@ -8,13 +9,23 @@ export type PypiPackageHit = {
 
 export const DEFAULT_SEARCH_LIMIT = 50;
 
-function httpsGet(url: string, timeoutMs = 15000): Promise<string> {
+export type SearchPypiOptions = {
+	limit?: number;
+	/** Package names already installed (lowercase) — omitted from results. */
+	excludeNames?: ReadonlySet<string>;
+	/**
+	 * When true (default), only names that *start with* the query are returned
+	 * (e.g. `django-` → `django-filter`, not `acdh-django-…`).
+	 */
+	prefixOnly?: boolean;
+};
+
+function httpsGet(url: string, timeoutMs = 20000): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const req = https.get(
 			url,
 			{
 				headers: {
-					// pip-like UA avoids warehouse HTML bot challenges on API endpoints
 					'User-Agent': 'pip/24.0 python-dependencies-manager',
 					Accept: 'application/json, text/html',
 				},
@@ -44,7 +55,8 @@ function httpsGet(url: string, timeoutMs = 15000): Promise<string> {
 			},
 		);
 		req.setTimeout(timeoutMs, () => {
-			req.destroy(new Error(`Timeout fetching ${url}`));
+			req.destroy();
+			reject(new Error(`Timeout fetching ${url}`));
 		});
 		req.on('error', reject);
 	});
@@ -82,15 +94,21 @@ export async function fetchPypiPackage(
 }
 
 /**
- * Stream https://pypi.org/simple/ and collect package names matching query
- * (substring, case-insensitive). Prefers names that *start with* the query.
- * Stops early once enough prefix matches are found.
+ * Stream https://pypi.org/simple/ and collect package names matching query.
+ * Default: prefix match only. Stops early once `limit` prefix hits are found.
  */
 export function searchPackageNamesFromSimpleIndex(
 	query: string,
 	limit = DEFAULT_SEARCH_LIMIT,
+	options?: {
+		excludeNames?: ReadonlySet<string>;
+		prefixOnly?: boolean;
+	},
 ): Promise<string[]> {
 	const q = query.trim().toLowerCase();
+	const prefixOnly = options?.prefixOnly !== false;
+	const exclude = options?.excludeNames;
+
 	if (!q) {
 		return Promise.resolve([]);
 	}
@@ -101,6 +119,7 @@ export function searchPackageNamesFromSimpleIndex(
 		const seen = new Set<string>();
 		let buf = '';
 		let settled = false;
+		let intentionalAbort = false;
 
 		const finish = (names: string[]) => {
 			if (settled) {
@@ -110,10 +129,32 @@ export function searchPackageNamesFromSimpleIndex(
 			resolve(names);
 		};
 
+		const fail = (err: Error) => {
+			if (settled || intentionalAbort) {
+				return;
+			}
+			settled = true;
+			reject(err);
+		};
+
 		const consider = (rawName: string) => {
-			const name = decodeURIComponent(rawName);
+			let name: string;
+			try {
+				name = decodeURIComponent(rawName);
+			} catch {
+				name = rawName;
+			}
 			const key = name.toLowerCase();
-			if (seen.has(key)) {
+			if (seen.has(key) || exclude?.has(key)) {
+				return;
+			}
+			// Simple index uses normalized names (usually lowercase with hyphens).
+			if (prefixOnly) {
+				if (!key.startsWith(q)) {
+					return;
+				}
+				seen.add(key);
+				starts.push(name);
 				return;
 			}
 			if (!key.includes(q)) {
@@ -122,7 +163,7 @@ export function searchPackageNamesFromSimpleIndex(
 			seen.add(key);
 			if (key.startsWith(q)) {
 				starts.push(name);
-			} else if (contains.length < limit * 3) {
+			} else if (contains.length < limit * 2) {
 				contains.push(name);
 			}
 		};
@@ -135,9 +176,9 @@ export function searchPackageNamesFromSimpleIndex(
 					Accept: 'text/html',
 				},
 			},
-			(res) => {
+			(res: http.IncomingMessage) => {
 				if (res.statusCode && res.statusCode >= 400) {
-					reject(new Error(`HTTP ${res.statusCode} fetching PyPI simple index`));
+					fail(new Error(`HTTP ${res.statusCode} fetching PyPI simple index`));
 					res.resume();
 					return;
 				}
@@ -154,35 +195,47 @@ export function searchPackageNamesFromSimpleIndex(
 						lastIndex = re.lastIndex;
 						consider(m[1]);
 						if (starts.length >= limit) {
-							res.destroy();
+							// Resolve first, then abort stream (avoids race with error handlers).
 							finish(starts.slice(0, limit));
+							intentionalAbort = true;
+							res.destroy();
+							req.destroy();
 							return;
 						}
 					}
 					if (lastIndex > 0) {
 						buf = buf.slice(lastIndex);
 					} else if (buf.length > 50_000) {
-						// No complete anchor yet — keep a tail only
 						buf = buf.slice(-2_000);
 					}
 				});
 				res.on('end', () => {
-					finish([...starts, ...contains].slice(0, limit));
+					if (prefixOnly) {
+						finish(starts.slice(0, limit));
+					} else {
+						finish([...starts, ...contains].slice(0, limit));
+					}
 				});
 				res.on('error', (err) => {
-					if (!settled) {
-						reject(err);
+					if (intentionalAbort || settled) {
+						return;
 					}
+					fail(err instanceof Error ? err : new Error(String(err)));
 				});
 			},
 		);
 		req.setTimeout(180_000, () => {
-			req.destroy(new Error('Timeout streaming PyPI simple index'));
+			if (!settled) {
+				intentionalAbort = true;
+				req.destroy();
+				fail(new Error('Timeout streaming PyPI simple index'));
+			}
 		});
 		req.on('error', (err) => {
-			if (!settled) {
-				reject(err);
+			if (intentionalAbort || settled) {
+				return;
 			}
+			fail(err instanceof Error ? err : new Error(String(err)));
 		});
 	});
 }
@@ -200,7 +253,7 @@ async function enrichNamesWithMetadata(
 				return (
 					meta ?? {
 						name,
-						version: '?',
+						version: '…',
 						summary: '',
 					}
 				);
@@ -212,22 +265,38 @@ async function enrichNamesWithMetadata(
 }
 
 /**
- * Search PyPI package names (via simple index) and attach latest version.
- * Default limit is 50 so queries like `django-` return a rich list.
+ * Search PyPI package names (simple index) and attach latest version.
+ * By default: prefix match, 50 results, optional exclude of installed packages.
  */
 export async function searchPypiPackages(
 	query: string,
-	limit = DEFAULT_SEARCH_LIMIT,
+	limitOrOptions: number | SearchPypiOptions = DEFAULT_SEARCH_LIMIT,
 ): Promise<PypiPackageHit[]> {
+	const opts: SearchPypiOptions =
+		typeof limitOrOptions === 'number'
+			? { limit: limitOrOptions }
+			: limitOrOptions;
+
 	const q = query.trim();
+	const limit = opts.limit ?? DEFAULT_SEARCH_LIMIT;
+	const prefixOnly = opts.prefixOnly !== false;
+
 	if (q.length < 1) {
 		return [];
 	}
 
-	const names = await searchPackageNamesFromSimpleIndex(q, limit);
+	const names = await searchPackageNamesFromSimpleIndex(q, limit, {
+		excludeNames: opts.excludeNames,
+		prefixOnly,
+	});
+
 	if (names.length === 0) {
-		const exact = await fetchPypiPackage(q);
-		return exact ? [exact] : [];
+		// Exact lookup only when the typed name is a real package (not a bare prefix like "django-")
+		if (!q.endsWith('-') && !opts.excludeNames?.has(q.toLowerCase())) {
+			const exact = await fetchPypiPackage(q);
+			return exact ? [exact] : [];
+		}
+		return [];
 	}
 
 	return enrichNamesWithMetadata(names);

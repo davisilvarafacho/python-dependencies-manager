@@ -209,7 +209,29 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const picked = await pickPackagesToInstall();
+		// Hide packages already in the venv from PyPI multi-select results.
+		let excludeNames = new Set<string>();
+		try {
+			const installed = await listPackages({ root, output });
+			excludeNames = new Set(installed.map((p) => p.name.toLowerCase()));
+			log(output, 'cmd', `Install picker excludes ${excludeNames.size} installed package(s)`);
+		} catch (err) {
+			log(
+				output,
+				'cmd',
+				`Could not list installed packages for exclude: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+
+		const picked = await pickPackagesToInstall({
+			excludeNames,
+			onSearchError: (message) => {
+				log(output, 'pypi', `search error: ${message}`);
+				output.show(true);
+			},
+		});
 		if (!picked?.length) {
 			return;
 		}

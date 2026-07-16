@@ -13,25 +13,40 @@ export type PackagePickResult = {
 };
 
 /**
- * Multi-select QuickPick with debounced PyPI search.
- * Latest version is shown on the right via `description`.
- * Select several packages with checkboxes, then Enter / OK to install all.
+ * Multi-select QuickPick with debounced PyPI search (prefix match).
+ * Latest version on the right; already-installed packages are hidden.
  */
 export async function pickPackagesToInstall(options?: {
 	debounceMs?: number;
-	search?: (query: string, limit?: number) => Promise<PypiPackageHit[]>;
+	/** Lowercase installed package names to hide from results. */
+	excludeNames?: ReadonlySet<string>;
+	search?: (
+		query: string,
+		opts?: { limit?: number; excludeNames?: ReadonlySet<string> },
+	) => Promise<PypiPackageHit[]>;
+	onSearchError?: (message: string) => void;
 }): Promise<PackagePickResult[] | undefined> {
 	const debounceMs = options?.debounceMs ?? 280;
-	const search = options?.search ?? searchPypiPackages;
+	const excludeNames = options?.excludeNames ?? new Set<string>();
+	const search =
+		options?.search ??
+		((query, opts) =>
+			searchPypiPackages(query, {
+				limit: opts?.limit ?? DEFAULT_SEARCH_LIMIT,
+				excludeNames: opts?.excludeNames,
+				prefixOnly: true,
+			}));
 
 	type PickItem = vscode.QuickPickItem & { hit?: PypiPackageHit; freeform?: boolean };
 
 	const quickPick = vscode.window.createQuickPick<PickItem>();
 	quickPick.title = 'Install Python packages';
-	quickPick.placeholder = 'Search PyPI… (select one or more, then Enter)';
+	quickPick.placeholder =
+		'Type a prefix (e.g. django-) · multi-select · Enter to install';
 	quickPick.canSelectMany = true;
-	quickPick.matchOnDescription = true;
-	quickPick.matchOnDetail = true;
+	// Avoid over-filtering description/detail so all prefix hits stay visible.
+	quickPick.matchOnDescription = false;
+	quickPick.matchOnDetail = false;
 	quickPick.ignoreFocusOut = true;
 	quickPick.items = [];
 	quickPick.busy = false;
@@ -42,7 +57,6 @@ export async function pickPackagesToInstall(options?: {
 		},
 	];
 
-	/** Keep selected package names across search refreshes. */
 	const selectedByKey = new Map<string, PackagePickResult>();
 
 	let seq = 0;
@@ -73,17 +87,10 @@ export async function pickPackagesToInstall(options?: {
 	};
 
 	const applySelectionToItems = (items: PickItem[]): PickItem[] => {
-		// Re-select items that were previously chosen (same package name).
-		const selected: PickItem[] = [];
-		for (const item of items) {
-			if (selectedByKey.has(keyOf(item))) {
-				selected.push(item);
-			}
-		}
-		// Also keep selected packages not in current result list as sticky rows at top.
 		const present = new Set(items.map((i) => keyOf(i)));
 		const sticky: PickItem[] = [];
-		for (const [key, pick] of selectedByKey) {
+		for (const [, pick] of selectedByKey) {
+			const key = pick.name.toLowerCase();
 			if (!present.has(key)) {
 				sticky.push({
 					label: pick.name,
@@ -96,16 +103,13 @@ export async function pickPackagesToInstall(options?: {
 				});
 			}
 		}
-		const merged = [...sticky, ...items];
-		// selectedItems will be set after assigning items
-		return merged;
+		return [...sticky, ...items];
 	};
 
 	const runSearch = (value: string) => {
 		const mySeq = ++seq;
 		const q = value.trim();
 		if (!q) {
-			// Still show sticky selected packages when the query is cleared.
 			const stickyOnly = applySelectionToItems([]);
 			quickPick.items = stickyOnly;
 			quickPick.selectedItems = stickyOnly;
@@ -115,7 +119,10 @@ export async function pickPackagesToInstall(options?: {
 		quickPick.busy = true;
 		void (async () => {
 			try {
-				const hits = await search(q, DEFAULT_SEARCH_LIMIT);
+				const hits = await search(q, {
+					limit: DEFAULT_SEARCH_LIMIT,
+					excludeNames,
+				});
 				if (mySeq !== seq) {
 					return;
 				}
@@ -126,7 +133,13 @@ export async function pickPackagesToInstall(options?: {
 					detail: hit.summary || undefined,
 					hit,
 				}));
-				if (!items.some((i) => i.label.toLowerCase() === q.toLowerCase())) {
+				// Free-form only when it looks like a real install target, not a bare prefix.
+				const looksLikePrefix = q.endsWith('-') || q.endsWith('.');
+				if (
+					!looksLikePrefix &&
+					!excludeNames.has(q.toLowerCase()) &&
+					!items.some((i) => i.label.toLowerCase() === q.toLowerCase())
+				) {
 					items.unshift({
 						label: q,
 						description: 'install as typed',
@@ -134,19 +147,29 @@ export async function pickPackagesToInstall(options?: {
 						freeform: true,
 					});
 				}
+				if (items.length === 0 && stickyOnlyEmpty(selectedByKey)) {
+					items.push({
+						label: q,
+						description: 'no matches',
+						detail: `No PyPI packages starting with “${q}” (excluding installed)`,
+						freeform: true,
+					});
+				}
 				const merged = applySelectionToItems(items);
 				quickPick.items = merged;
 				quickPick.selectedItems = merged.filter((i) => selectedByKey.has(keyOf(i)));
-			} catch {
+			} catch (err) {
 				if (mySeq !== seq) {
 					return;
 				}
+				const message = err instanceof Error ? err.message : String(err);
+				options?.onSearchError?.(message);
 				rememberSelection();
 				const items: PickItem[] = [
 					{
 						label: q,
 						description: 'install as typed',
-						detail: 'PyPI search failed — install using the typed name',
+						detail: `PyPI search failed: ${message}`,
 						freeform: true,
 					},
 				];
@@ -161,6 +184,8 @@ export async function pickPackagesToInstall(options?: {
 		})();
 	};
 
+	const stickyOnlyEmpty = (map: Map<string, PackagePickResult>) => map.size === 0;
+
 	quickPick.onDidChangeValue((value) => {
 		if (timer) {
 			clearTimeout(timer);
@@ -169,11 +194,7 @@ export async function pickPackagesToInstall(options?: {
 	});
 
 	quickPick.onDidChangeSelection((items) => {
-		// Rebuild selection map from current selection + keep ones not visible? 
-		// Simpler: clear and re-add from selectedItems only would lose sticky off-list.
-		// Instead: update map for currently visible items' keys, then set selected ones.
 		const visibleKeys = new Set(quickPick.items.map((i) => keyOf(i)));
-		// Remove deselected among visible
 		for (const key of [...selectedByKey.keys()]) {
 			if (visibleKeys.has(key) && !items.some((i) => keyOf(i) === key)) {
 				selectedByKey.delete(key);
@@ -188,7 +209,7 @@ export async function pickPackagesToInstall(options?: {
 				});
 			} else {
 				const typed = item.label.trim();
-				if (typed) {
+				if (typed && item.description !== 'no matches') {
 					selectedByKey.set(typed.toLowerCase(), { spec: typed, name: typed });
 				}
 			}
@@ -208,23 +229,26 @@ export async function pickPackagesToInstall(options?: {
 
 		const accept = () => {
 			rememberSelection();
-			// Prefer map (survives search changes); fall back to selectedItems
-			const fromMap = [...selectedByKey.values()];
+			const fromMap = [...selectedByKey.values()].filter(
+				(p) => p.spec && p.spec !== 'no matches',
+			);
 			if (fromMap.length > 0) {
 				finish(fromMap);
 				return;
 			}
-			const fromUi = quickPick.selectedItems.map((item) => {
-				if (item.hit) {
-					return {
-						spec: item.hit.name,
-						name: item.hit.name,
-						version: item.hit.version,
-					};
-				}
-				const typed = (item.label || quickPick.value).trim();
-				return { spec: typed, name: typed };
-			}).filter((p) => p.spec.length > 0);
+			const fromUi = quickPick.selectedItems
+				.map((item) => {
+					if (item.hit) {
+						return {
+							spec: item.hit.name,
+							name: item.hit.name,
+							version: item.hit.version,
+						};
+					}
+					const typed = (item.label || quickPick.value).trim();
+					return { spec: typed, name: typed };
+				})
+				.filter((p) => p.spec.length > 0 && p.spec !== 'no matches');
 			finish(fromUi.length > 0 ? fromUi : undefined);
 		};
 
@@ -244,12 +268,4 @@ export async function pickPackagesToInstall(options?: {
 		clearTimeout(timer);
 	}
 	return result;
-}
-
-/** @deprecated use pickPackagesToInstall — kept name alias for clarity in call sites if needed */
-export async function pickPackageToInstall(
-	options?: Parameters<typeof pickPackagesToInstall>[0],
-): Promise<PackagePickResult | undefined> {
-	const many = await pickPackagesToInstall(options);
-	return many?.[0];
 }
