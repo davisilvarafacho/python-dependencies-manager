@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { runInstallFromRequirements } from './installFlow';
+import { log, logSection } from './log';
 import { createOutputChannel } from './output';
 import { NoVenvError, PackageItem, PackagesTreeProvider } from './packagesTree';
 import { requirementsExists, venvExists } from './paths';
@@ -27,13 +28,31 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(output);
 
 	const preferences = new PromptPreferences(context);
+	const rootAtActivate = getWorkspaceRootFsPath();
+	logSection(output, 'Extension activate');
+	log(output, 'activate', `workspace root: ${rootAtActivate ?? '(none)'}`);
+	log(
+		output,
+		'activate',
+		`requirements.txt: ${rootAtActivate ? requirementsExists(rootAtActivate) : false}`,
+	);
+	log(output, 'activate', `.venv: ${rootAtActivate ? venvExists(rootAtActivate) : false}`);
 
 	const tree = new PackagesTreeProvider(async () => {
 		const root = getWorkspaceRootFsPath();
 		if (!root || !venvExists(root)) {
+			log(output, 'tree', `no venv (root=${root ?? 'none'})`);
 			throw new NoVenvError();
 		}
-		return listPackages({ root, output });
+		log(output, 'tree', `listing packages in ${root}`);
+		try {
+			const pkgs = await listPackages({ root, output });
+			log(output, 'tree', `listed ${pkgs.length} package(s)`);
+			return pkgs;
+		} catch (err) {
+			log(output, 'tree', `list failed: ${err instanceof Error ? err.message : String(err)}`);
+			throw err;
+		}
 	});
 	context.subscriptions.push(
 		vscode.window.registerTreeDataProvider('pythonDependenciesManager.packages', tree),
@@ -50,6 +69,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const reportError = (err: unknown): void => {
 		const message = err instanceof Error ? err.message : String(err);
+		log(output, 'error', message);
+		if (err instanceof Error && err.stack) {
+			log(output, 'error', err.stack);
+		}
 		void vscode.window.showErrorMessage(message);
 		output.show(true);
 	};
@@ -60,13 +83,20 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		if (!requirementsExists(root)) {
+			log(output, 'cmd', 'Install from requirements: missing requirements.txt');
 			void vscode.window.showWarningMessage('No requirements.txt at workspace root.');
 			return;
 		}
+		log(output, 'cmd', 'Install from requirements: starting');
 		await runInstallFromRequirements({
 			root,
 			output,
-			getPythonPath: getSelectedPythonPath,
+			getPythonPath: async () => {
+				log(output, 'cmd', 'resolving interpreter via ms-python.python…');
+				const path = await getSelectedPythonPath();
+				log(output, 'cmd', `resolved interpreter: ${path}`);
+				return path;
+			},
 			ensureVenv: async ({ root: r, pythonPath }) =>
 				ensureVenv({
 					root: r,
@@ -77,6 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
 			installRequirements: async () => installRequirements({ root, output }),
 		});
 		tree.refresh();
+		log(output, 'cmd', 'Install from requirements: done (tree refreshed)');
 	};
 
 	/** When .venv is missing, offer recovery via Install from requirements.txt. */
@@ -130,6 +161,8 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		try {
+			logSection(output, `Install package: ${spec.trim()}`);
+			output.show(true);
 			await withPackageProgress(`Installing ${spec.trim()}…`, async () => {
 				await pipInstallPackage({ root, output, spec: spec.trim() });
 			});
@@ -165,6 +198,8 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		try {
+			logSection(output, `Uninstall package: ${name}`);
+			output.show(true);
 			await withPackageProgress(`Uninstalling ${name}…`, async () => {
 				await pipUninstallPackage({ root, output, name });
 			});
@@ -191,6 +226,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 		const name = item.pkg.name;
 		try {
+			logSection(output, `Update package: ${name}`);
+			output.show(true);
 			await withPackageProgress(`Updating ${name}…`, async () => {
 				await pipUpdatePackage({ root, output, name });
 			});

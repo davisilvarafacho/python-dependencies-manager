@@ -67,14 +67,14 @@ suite('runInstallFromRequirements', () => {
 		assert.deepStrictEqual(messages, ['Dependencies installed successfully.']);
 	});
 
-	test('InterpreterError shows message without opening output', async () => {
-		let shown = false;
+	test('InterpreterError shows message and opens output for logs', async () => {
+		let showCount = 0;
 		const errors: string[] = [];
 		const output = {
 			appendLine() {},
 			append() {},
 			show() {
-				shown = true;
+				showCount += 1;
 			},
 		} as unknown as vscode.OutputChannel;
 
@@ -99,7 +99,8 @@ suite('runInstallFromRequirements', () => {
 		});
 
 		assert.deepStrictEqual(errors, ['Select a Python interpreter']);
-		assert.strictEqual(shown, false);
+		// Output is opened at the start of the flow so the user can follow logs.
+		assert.ok(showCount >= 1);
 	});
 
 	test('other errors show message and open output channel', async () => {

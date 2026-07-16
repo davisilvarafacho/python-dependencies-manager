@@ -6,24 +6,37 @@ import {
 	uninstallPackage,
 	updatePackage,
 	installRequirements,
+	ensurePipAvailable,
 } from '../pipService';
-import type { RunProcessOptions } from '../runProcess';
+import type { ProcessRunner, RunProcessOptions, RunProcessResult } from '../runProcess';
 
 suite('pipService', () => {
 	const output = { appendLine() {}, append() {} } as unknown as vscode.OutputChannel;
+
+	/** First call is always `pip --version` from ensurePipAvailable. */
+	function withPipReady(
+		handler: (opts: RunProcessOptions) => Promise<RunProcessResult> | RunProcessResult,
+	): ProcessRunner {
+		return async (opts) => {
+			if (opts.args.includes('--version')) {
+				return { code: 0, stdout: 'pip 24.0', stderr: '' };
+			}
+			return handler(opts);
+		};
+	}
 
 	test('listPackages parses json', async () => {
 		const pkgs = await listPackages({
 			root: '/proj',
 			output,
-			run: async () => ({
+			run: withPipReady(async () => ({
 				code: 0,
 				stdout: JSON.stringify([
 					{ name: 'requests', version: '2.32.0' },
 					{ name: 'pip', version: '24.0' },
 				]),
 				stderr: '',
-			}),
+			})),
 		});
 		assert.deepStrictEqual(pkgs, [
 			{ name: 'requests', version: '2.32.0' },
@@ -35,7 +48,7 @@ suite('pipService', () => {
 		const pkgs = await listPackages({
 			root: '/proj',
 			output,
-			run: async () => ({ code: 0, stdout: '', stderr: '' }),
+			run: withPipReady(async () => ({ code: 0, stdout: '', stderr: '' })),
 		});
 		assert.deepStrictEqual(pkgs, []);
 	});
@@ -45,7 +58,7 @@ suite('pipService', () => {
 			listPackages({
 				root: '/proj',
 				output,
-				run: async () => ({ code: 0, stdout: 'not-json', stderr: '' }),
+				run: withPipReady(async () => ({ code: 0, stdout: 'not-json', stderr: '' })),
 			}),
 		);
 	});
@@ -55,10 +68,10 @@ suite('pipService', () => {
 		await listPackages({
 			root: '/proj',
 			output,
-			run: async (o) => {
+			run: withPipReady(async (o) => {
 				opts = o;
 				return { code: 0, stdout: '[]', stderr: '' };
-			},
+			}),
 		});
 		assert.ok(opts);
 		assert.ok(opts!.command.includes('python') || opts!.command.endsWith('python'));
@@ -72,7 +85,7 @@ suite('pipService', () => {
 				root: '/proj',
 				output,
 				spec: 'nope',
-				run: async () => ({ code: 1, stdout: '', stderr: 'boom' }),
+				run: withPipReady(async () => ({ code: 1, stdout: '', stderr: 'boom' })),
 			}),
 		);
 	});
@@ -83,10 +96,10 @@ suite('pipService', () => {
 			root: '/proj',
 			output,
 			spec: 'requests==2.32.0',
-			run: async (o) => {
+			run: withPipReady(async (o) => {
 				opts = o;
 				return { code: 0, stdout: '', stderr: '' };
-			},
+			}),
 		});
 		assert.deepStrictEqual(opts!.args, ['-m', 'pip', 'install', 'requests==2.32.0']);
 	});
@@ -97,10 +110,10 @@ suite('pipService', () => {
 			root: '/proj',
 			output,
 			name: 'requests',
-			run: async (o) => {
+			run: withPipReady(async (o) => {
 				opts = o;
 				return { code: 0, stdout: '', stderr: '' };
-			},
+			}),
 		});
 		assert.deepStrictEqual(opts!.args, ['-m', 'pip', 'uninstall', '-y', 'requests']);
 	});
@@ -111,10 +124,10 @@ suite('pipService', () => {
 			root: '/proj',
 			output,
 			name: 'requests',
-			run: async (o) => {
+			run: withPipReady(async (o) => {
 				opts = o;
 				return { code: 0, stdout: '', stderr: '' };
-			},
+			}),
 		});
 		assert.deepStrictEqual(opts!.args, ['-m', 'pip', 'install', '-U', 'requests']);
 	});
@@ -124,11 +137,40 @@ suite('pipService', () => {
 		await installRequirements({
 			root: '/proj',
 			output,
-			run: async (o) => {
+			run: withPipReady(async (o) => {
 				opts = o;
 				return { code: 0, stdout: '', stderr: '' };
+			}),
+		});
+		assert.deepStrictEqual(opts!.args, [
+			'-m',
+			'pip',
+			'install',
+			'-r',
+			'requirements.txt',
+		]);
+	});
+
+	test('ensurePipAvailable bootstraps with ensurepip when pip missing', async () => {
+		const calls: string[][] = [];
+		await ensurePipAvailable({
+			root: '/proj',
+			output,
+			run: async (o) => {
+				calls.push(o.args);
+				if (o.args.includes('--version') && calls.filter((c) => c.includes('--version')).length === 1) {
+					return { code: 1, stdout: '', stderr: 'No module named pip' };
+				}
+				if (o.args.includes('ensurepip')) {
+					return { code: 0, stdout: 'Looking in links…', stderr: '' };
+				}
+				if (o.args.includes('--version')) {
+					return { code: 0, stdout: 'pip 24.0 from …', stderr: '' };
+				}
+				return { code: 1, stdout: '', stderr: 'unexpected' };
 			},
 		});
-		assert.deepStrictEqual(opts!.args, ['-m', 'pip', 'install', '-r', 'requirements.txt']);
+		assert.ok(calls.some((a) => a.includes('ensurepip')));
+		assert.strictEqual(calls.filter((c) => c.includes('--version')).length, 2);
 	});
 });

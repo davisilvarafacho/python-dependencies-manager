@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import type * as vscode from 'vscode';
+import { log } from './log';
 
 export type RunProcessResult = {
 	code: number | null;
@@ -21,8 +22,9 @@ export type ProcessRunner = (
 
 export function runProcess(options: RunProcessOptions): Promise<RunProcessResult> {
 	const { command, args, cwd, output } = options;
-	output.appendLine(`$ ${command} ${args.join(' ')}`);
-	output.appendLine(`cwd: ${cwd}`);
+	const started = Date.now();
+	log(output, 'process', `$ ${command} ${args.join(' ')}`);
+	log(output, 'process', `cwd: ${cwd}`);
 
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
@@ -45,11 +47,18 @@ export function runProcess(options: RunProcessOptions): Promise<RunProcessResult
 			output.append(text);
 		});
 		child.on('error', (err) => {
-			output.appendLine(`Process error: ${err.message}`);
+			log(output, 'process', `spawn error: ${err.message}`);
 			reject(err);
 		});
 		child.on('close', (code) => {
-			output.appendLine(`exit code: ${code}`);
+			const ms = Date.now() - started;
+			log(output, 'process', `exit code: ${code} (${ms}ms)`);
+			if (code !== 0) {
+				const tail = (stderr || stdout).trim().slice(-800);
+				if (tail) {
+					log(output, 'process', `failure tail:\n${tail}`);
+				}
+			}
 			resolve({ code, stdout, stderr });
 		});
 	});

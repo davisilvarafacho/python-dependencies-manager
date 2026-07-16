@@ -1,4 +1,5 @@
 import type * as vscode from 'vscode';
+import { log } from './log';
 import { venvPythonPath } from './paths';
 import {
 	runProcess,
@@ -26,6 +27,78 @@ function failOnNonZero(result: RunProcessResult, action: string): void {
 	);
 }
 
+/**
+ * Ensure the project .venv can run `python -m pip`.
+ * Many Debian/Ubuntu venvs are created without pip when ensurepip is missing.
+ */
+export async function ensurePipAvailable(options: PipBaseOptions): Promise<void> {
+	const { root, output } = options;
+	const run = options.run ?? runProcess;
+	const python = venvPythonPath(root);
+
+	log(output, 'pip', `venv python: ${python}`);
+	log(output, 'pip', 'Checking `python -m pip --version`…');
+
+	const check = await run({
+		command: python,
+		args: ['-m', 'pip', '--version'],
+		cwd: root,
+		output,
+	});
+
+	if (check.code === 0) {
+		log(output, 'pip', `pip OK: ${(check.stdout || check.stderr).trim()}`);
+		return;
+	}
+
+	log(
+		output,
+		'pip',
+		'pip is missing in .venv (common when ensurepip was unavailable). Bootstrapping with ensurepip…',
+	);
+
+	const bootstrap = await run({
+		command: python,
+		args: ['-m', 'ensurepip', '--upgrade'],
+		cwd: root,
+		output,
+	});
+
+	if (bootstrap.code !== 0) {
+		const snippet = (bootstrap.stderr || bootstrap.stdout || '').trim().slice(0, 500);
+		throw new Error(
+			[
+				'No module named pip in .venv, and ensurepip failed to install it.',
+				snippet ? `Details: ${snippet}` : '',
+				'Fix: install system packages, then recreate .venv, e.g.',
+				'  sudo apt install python3-venv python3-pip',
+				'  rm -rf .venv',
+				'  then run Install from requirements.txt again.',
+			]
+				.filter(Boolean)
+				.join(' '),
+		);
+	}
+
+	log(output, 'pip', 'ensurepip finished; re-checking pip…');
+	const recheck = await run({
+		command: python,
+		args: ['-m', 'pip', '--version'],
+		cwd: root,
+		output,
+	});
+
+	if (recheck.code !== 0) {
+		const snippet = (recheck.stderr || recheck.stdout || '').trim().slice(0, 500);
+		throw new Error(
+			`pip still unavailable after ensurepip${snippet ? `: ${snippet}` : ''}. ` +
+				'Recreate .venv after installing python3-venv / python3-pip.',
+		);
+	}
+
+	log(output, 'pip', `pip ready: ${(recheck.stdout || recheck.stderr).trim()}`);
+}
+
 async function runPip(
 	options: PipBaseOptions,
 	args: string[],
@@ -33,6 +106,10 @@ async function runPip(
 ): Promise<RunProcessResult> {
 	const { root, output } = options;
 	const run = options.run ?? runProcess;
+
+	await ensurePipAvailable(options);
+
+	log(output, 'pip', `Running: python -m pip ${args.join(' ')}`);
 	const result = await run({
 		command: venvPythonPath(root),
 		args: ['-m', 'pip', ...args],
@@ -40,6 +117,7 @@ async function runPip(
 		output,
 	});
 	failOnNonZero(result, action);
+	log(output, 'pip', `${action} completed successfully`);
 	return result;
 }
 
@@ -90,5 +168,7 @@ export async function updatePackage(
 }
 
 export async function installRequirements(options: PipBaseOptions): Promise<void> {
+	const { output, root } = options;
+	log(output, 'pip', `Installing from ${root}/requirements.txt`);
 	await runPip(options, ['install', '-r', 'requirements.txt'], 'install requirements');
 }
