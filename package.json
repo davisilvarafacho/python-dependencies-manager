@@ -1,23 +1,125 @@
 {
   "name": "python-dependencies-manager",
-  "displayName": "python-dependencies-manager",
-  "description": "UI to manager python dependencies",
+  "displayName": "Python Dependencies Manager",
+  "description": "Gerencia a .venv do projeto com pip: detecta requirements.txt, cria o ambiente se faltar, instala dependências e lista/instala/desinstala/atualiza pacotes — no estilo do gerenciador do PyCharm.",
   "version": "0.0.1",
+  "publisher": "rafacho",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.106.1"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Programming Languages"
   ],
-  "activationEvents": [],
+  "keywords": [
+    "python",
+    "pip",
+    "venv",
+    "requirements",
+    "dependencies",
+    "packages"
+  ],
+  "extensionDependencies": [
+    "ms-python.python"
+  ],
+  "activationEvents": [
+    "workspaceContains:requirements.txt",
+    "workspaceContains:.venv"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pythonDependenciesManager",
+          "title": "Python Dependencies",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "pythonDependenciesManager": [
+        {
+          "id": "pythonDependenciesManager.packages",
+          "name": "Packages",
+          "contextualTitle": "Python packages (.venv)"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "python-dependencies-manager.helloWorld",
-        "title": "Hello World"
+        "command": "pythonDependenciesManager.installFromRequirements",
+        "title": "Install from requirements.txt",
+        "category": "Python Dependencies",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "pythonDependenciesManager.refreshPackages",
+        "title": "Refresh Packages",
+        "category": "Python Dependencies",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "pythonDependenciesManager.installPackage",
+        "title": "Install Package",
+        "category": "Python Dependencies",
+        "icon": "$(add)"
+      },
+      {
+        "command": "pythonDependenciesManager.uninstallPackage",
+        "title": "Uninstall Package",
+        "category": "Python Dependencies",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "pythonDependenciesManager.updatePackage",
+        "title": "Update Package",
+        "category": "Python Dependencies",
+        "icon": "$(arrow-up)"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "pythonDependenciesManager.refreshPackages",
+          "when": "view == pythonDependenciesManager.packages",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pythonDependenciesManager.installPackage",
+          "when": "view == pythonDependenciesManager.packages",
+          "group": "navigation@2"
+        },
+        {
+          "command": "pythonDependenciesManager.installFromRequirements",
+          "when": "view == pythonDependenciesManager.packages",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "pythonDependenciesManager.updatePackage",
+          "when": "view == pythonDependenciesManager.packages && viewItem == package",
+          "group": "inline@1"
+        },
+        {
+          "command": "pythonDependenciesManager.uninstallPackage",
+          "when": "view == pythonDependenciesManager.packages && viewItem == package",
+          "group": "inline@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "pythonDependenciesManager.uninstallPackage",
+          "when": "false"
+        },
+        {
+          "command": "pythonDependenciesManager.updatePackage",
+          "when": "false"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",

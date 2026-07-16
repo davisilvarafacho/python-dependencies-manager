@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Monochrome glyph for Activity Bar (VS Code tints this) -->
+  <path
+    fill="currentColor"
+    d="M12 2a4 4 0 0 1 4 4v1h1.5A2.5 2.5 0 0 1 20 9.5v9A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5v-9A2.5 2.5 0 0 1 6.5 7H8V6a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v1h4V6a2 2 0 0 0-2-2zm-3 7v2h6v-2H9zm0 4v2h4v-2H9z"
+  />
+</svg>

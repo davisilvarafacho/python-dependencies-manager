@@ -1,26 +1,67 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+/**
+ * Entry point. MVP behavior is defined in:
+ * docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md
+ *
+ * Commands are registered as stubs until the implementation plan is executed.
+ */
 export function activate(context: vscode.ExtensionContext) {
+	const output = vscode.window.createOutputChannel('Python Dependencies Manager');
+	context.subscriptions.push(output);
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "python-dependencies-manager" is now active!');
+	const stub = (label: string) => () => {
+		const message = `${label} — ainda não implementado (ver design spec).`;
+		output.appendLine(message);
+		void vscode.window.showInformationMessage(message);
+	};
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('python-dependencies-manager.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from python-dependencies-manager!');
+	context.subscriptions.push(
+		vscode.commands.registerCommand(
+			'pythonDependenciesManager.installFromRequirements',
+			stub('Install from requirements.txt'),
+		),
+		vscode.commands.registerCommand(
+			'pythonDependenciesManager.refreshPackages',
+			stub('Refresh Packages'),
+		),
+		vscode.commands.registerCommand(
+			'pythonDependenciesManager.installPackage',
+			stub('Install Package'),
+		),
+		vscode.commands.registerCommand(
+			'pythonDependenciesManager.uninstallPackage',
+			stub('Uninstall Package'),
+		),
+		vscode.commands.registerCommand(
+			'pythonDependenciesManager.updatePackage',
+			stub('Update Package'),
+		),
+	);
+
+	const packagesView = vscode.window.createTreeView('pythonDependenciesManager.packages', {
+		treeDataProvider: new PlaceholderPackagesProvider(),
+		showCollapseAll: false,
 	});
+	context.subscriptions.push(packagesView);
 
-	context.subscriptions.push(disposable);
+	output.appendLine('Python Dependencies Manager activated.');
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}
+
+class PlaceholderPackagesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+	getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+		return element;
+	}
+
+	getChildren(): vscode.ProviderResult<vscode.TreeItem[]> {
+		const item = new vscode.TreeItem(
+			'Implementation pending — see design spec',
+			vscode.TreeItemCollapsibleState.None,
+		);
+		item.description = 'MVP not wired yet';
+		item.tooltip = 'Package list will appear here after pip integration.';
+		return [item];
+	}
+}

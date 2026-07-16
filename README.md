@@ -1,71 +1,102 @@
-# python-dependencies-manager README
+# Python Dependencies Manager
 
-This is the README for your extension "python-dependencies-manager". After writing up a brief description, we recommend including the following sections.
+Extensão para o VS Code que gerencia as dependências Python da **`.venv` do projeto** com **pip**, no espírito do gerenciador de pacotes do PyCharm.
 
-## Features
+## O que faz (MVP)
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+1. **Detecta** `requirements.txt` na raiz da pasta aberta
+2. **Notifica** e sugere instalar as dependências
+3. Se não existir **`.venv`**, **cria** com o interpretador selecionado na [extensão Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+4. Roda **`pip install -r requirements.txt`** com barra de progresso e log no **Output Channel**
+5. Mostra os pacotes instalados numa **view na Activity Bar**
+6. Permite **instalar / desinstalar / atualizar** pacotes avulsos
 
-For example if there is an image subfolder under your extension project workspace:
+## Pré-requisitos
 
-\!\[feature X\]\(images/feature-x.png\)
+- [Visual Studio Code](https://code.visualstudio.com/) (ou fork compatível com a API de extensões)
+- Extensão **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** instalada
+- Um **interpretador Python** selecionado no workspace (`Python: Select Interpreter`)
+- Projeto aberto como **uma pasta** (raiz com `requirements.txt` e, se existir, `.venv`)
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Como usar
 
-## Requirements
+### Fluxo automático
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+1. Abra a pasta do projeto (com `requirements.txt` na raiz)
+2. Se a extensão detectar o arquivo, aparece a notificação para instalar
+3. Escolha:
+   - **Install** — cria `.venv` se faltar e instala as dependências
+   - **Not now** — não pergunta de novo nesta sessão
+   - **Don’t ask again** — não pergunta de novo neste workspace
 
-## Extension Settings
+### View de pacotes
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+Na Activity Bar, abra **Python Dependencies** para:
 
-For example:
+- Ver pacotes da `.venv`
+- Atualizar a lista (Refresh)
+- Instalar um pacote
+- Desinstalar / atualizar um pacote (menu do item)
+- Reexecutar install a partir do `requirements.txt`
 
-This extension contributes the following settings:
+### Command Palette
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+Comandos sob a categoria **Python Dependencies**:
 
-## Known Issues
+| Comando | Descrição |
+|---------|-----------|
+| `Install from requirements.txt` | Mesmo fluxo da notificação (sempre disponível) |
+| `Refresh Packages` | Recarrega a lista da `.venv` |
+| `Install Package` | Pede o nome/spec e roda `pip install` |
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+## Feedback durante operações
 
-## Release Notes
+- **Progress notification** enquanto venv/pip rodam
+- Canal de saída **Python Dependencies Manager** com o log completo (stdout/stderr)
 
-Users appreciate release notes as you update your extension.
+## Escopo atual (e o que fica de fora)
 
-### 1.0.0
+**Dentro do MVP:** pasta única, só `requirements.txt` + pip + `.venv` na raiz.
 
-Initial release of ...
+**Fora do MVP (por enquanto):** monorepo, Poetry/uv/conda, sync bidirecional com o manifesto, “update all”, Webview rica.
 
-### 1.0.1
+Detalhes de design: [`docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md`](docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md).
 
-Fixed issue #.
+## Desenvolvimento
 
-### 1.1.0
+```bash
+pnpm install
+pnpm run compile
+# ou: pnpm run watch
+```
 
-Added features X, Y, and Z.
+No VS Code: **F5** (Run Extension) abre uma janela Extension Development Host.
 
----
+```bash
+pnpm run lint
+pnpm test
+```
 
-## Following extension guidelines
+Empacotar:
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+```bash
+pnpm run package
+# em seguida, se tiver vsce: npx @vscode/vsce package
+```
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+## Estrutura (alta nível)
 
-## Working with Markdown
+```
+src/
+  extension.ts          # activate / deactivate
+docs/superpowers/specs/ # design do produto
+media/                  # ícone da Activity Bar
+```
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+## Changelog
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+Ver [CHANGELOG.md](CHANGELOG.md).
 
-## For more information
+## Licença
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+MIT (ver campo `license` no `package.json`).
