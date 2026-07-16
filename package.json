@@ -47,6 +47,7 @@
     "views": {
       "pythonDependenciesManager": [
         {
+          "type": "webview",
           "id": "pythonDependenciesManager.packages",
           "name": "Packages",
           "contextualTitle": "Python packages (.venv)"
@@ -101,18 +102,6 @@
           "command": "pythonDependenciesManager.installFromRequirements",
           "when": "view == pythonDependenciesManager.packages",
           "group": "navigation@3"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "pythonDependenciesManager.updatePackage",
-          "when": "view == pythonDependenciesManager.packages && viewItem == package",
-          "group": "inline@1"
-        },
-        {
-          "command": "pythonDependenciesManager.uninstallPackage",
-          "when": "view == pythonDependenciesManager.packages && viewItem == package",
-          "group": "inline@2"
         }
       ],
       "commandPalette": [

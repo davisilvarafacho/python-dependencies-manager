@@ -2,7 +2,9 @@ import * as vscode from 'vscode';
 import { runInstallFromRequirements } from './installFlow';
 import { log, logSection } from './log';
 import { createOutputChannel } from './output';
-import { NoVenvError, PackageItem, PackagesTreeProvider } from './packagesTree';
+import { pickPackageToInstall } from './packageInstallQuickPick';
+import { NoVenvError } from './packagesTree';
+import { PackagesWebviewProvider } from './packagesWebview';
 import { requirementsExists, venvExists } from './paths';
 import {
 	installPackage as pipInstallPackage,
@@ -10,6 +12,7 @@ import {
 	listPackages,
 	uninstallPackage as pipUninstallPackage,
 	updatePackage as pipUpdatePackage,
+	type PackageInfo,
 } from './pipService';
 import { PromptPreferences } from './preferences';
 import { maybePromptInstallFromRequirements } from './promptInstall';
@@ -38,11 +41,11 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 	log(output, 'activate', `.venv: ${rootAtActivate ? venvExists(rootAtActivate) : false}`);
 
-	const tree = new PackagesTreeProvider(async () => {
+	const loadPackages = async (): Promise<PackageInfo[]> => {
 		const root = getWorkspaceRootFsPath();
 		if (!root || !venvExists(root)) {
 			log(output, 'tree', `no venv (root=${root ?? 'none'})`);
-			throw new NoVenvError();
+			throw new NoVenvError('No .venv found — run Install from requirements.txt');
 		}
 		log(output, 'tree', `listing packages in ${root}`);
 		try {
@@ -53,10 +56,7 @@ export function activate(context: vscode.ExtensionContext) {
 			log(output, 'tree', `list failed: ${err instanceof Error ? err.message : String(err)}`);
 			throw err;
 		}
-	});
-	context.subscriptions.push(
-		vscode.window.registerTreeDataProvider('pythonDependenciesManager.packages', tree),
-	);
+	};
 
 	const requireRoot = (): string | undefined => {
 		const root = getWorkspaceRootFsPath();
@@ -76,6 +76,26 @@ export function activate(context: vscode.ExtensionContext) {
 		void vscode.window.showErrorMessage(message);
 		output.show(true);
 	};
+
+	const withPackageProgress = async (
+		message: string,
+		task: () => Promise<void>,
+	): Promise<void> => {
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Python Dependencies',
+				cancellable: false,
+			},
+			async (progress) => {
+				progress.report({ message });
+				await task();
+			},
+		);
+	};
+
+	// Forward declaration via mutable ref so webview actions can call install flow.
+	const packagesViewRef: { current?: PackagesWebviewProvider } = {};
 
 	const installFromRequirements = async () => {
 		const root = requireRoot();
@@ -106,11 +126,10 @@ export function activate(context: vscode.ExtensionContext) {
 				}),
 			installRequirements: async () => installRequirements({ root, output }),
 		});
-		tree.refresh();
-		log(output, 'cmd', 'Install from requirements: done (tree refreshed)');
+		packagesViewRef.current?.refresh();
+		log(output, 'cmd', 'Install from requirements: done (view refreshed)');
 	};
 
-	/** When .venv is missing, offer recovery via Install from requirements.txt. */
 	const offerNoVenvRecovery = async (): Promise<void> => {
 		const choice = await vscode.window.showErrorMessage(
 			'No .venv found. Install from requirements.txt first.',
@@ -121,25 +140,8 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	};
 
-	const withPackageProgress = async (
-		message: string,
-		task: () => Promise<void>,
-	): Promise<void> => {
-		await vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Notification,
-				title: 'Python Dependencies',
-				cancellable: false,
-			},
-			async (progress) => {
-				progress.report({ message });
-				await task();
-			},
-		);
-	};
-
 	const refreshPackages = async () => {
-		tree.refresh();
+		await packagesViewRef.current?.reload();
 	};
 
 	const installPackageCmd = async () => {
@@ -152,32 +154,29 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const spec = await vscode.window.showInputBox({
-			prompt: 'Package name or pip spec (e.g. requests, requests==2.31.0)',
-			placeHolder: 'package-name',
-		});
-		if (!spec?.trim()) {
+		const picked = await pickPackageToInstall();
+		if (!picked?.spec?.trim()) {
 			return;
 		}
+		const spec = picked.spec.trim();
 
 		try {
-			logSection(output, `Install package: ${spec.trim()}`);
+			logSection(output, `Install package: ${spec}`);
+			if (picked.version) {
+				log(output, 'cmd', `PyPI latest version shown: ${picked.version}`);
+			}
 			output.show(true);
-			await withPackageProgress(`Installing ${spec.trim()}…`, async () => {
-				await pipInstallPackage({ root, output, spec: spec.trim() });
+			await withPackageProgress(`Installing ${spec}…`, async () => {
+				await pipInstallPackage({ root, output, spec });
 			});
-			tree.refresh();
-			void vscode.window.showInformationMessage(`Installed ${spec.trim()}.`);
+			packagesViewRef.current?.refresh();
+			void vscode.window.showInformationMessage(`Installed ${spec}.`);
 		} catch (err) {
 			reportError(err);
 		}
 	};
 
-	const uninstallPackageCmd = async (item?: PackageItem) => {
-		if (!item?.pkg?.name) {
-			void vscode.window.showErrorMessage('Select a package in the Packages view.');
-			return;
-		}
+	const uninstallPackageByName = async (name: string) => {
 		const root = requireRoot();
 		if (!root) {
 			return;
@@ -187,7 +186,6 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const name = item.pkg.name;
 		const confirm = await vscode.window.showWarningMessage(
 			`Uninstall ${name}?`,
 			{ modal: true },
@@ -203,18 +201,14 @@ export function activate(context: vscode.ExtensionContext) {
 			await withPackageProgress(`Uninstalling ${name}…`, async () => {
 				await pipUninstallPackage({ root, output, name });
 			});
-			tree.refresh();
+			packagesViewRef.current?.refresh();
 			void vscode.window.showInformationMessage(`Uninstalled ${name}.`);
 		} catch (err) {
 			reportError(err);
 		}
 	};
 
-	const updatePackageCmd = async (item?: PackageItem) => {
-		if (!item?.pkg?.name) {
-			void vscode.window.showErrorMessage('Select a package in the Packages view.');
-			return;
-		}
+	const updatePackageByName = async (name: string) => {
 		const root = requireRoot();
 		if (!root) {
 			return;
@@ -224,19 +218,33 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const name = item.pkg.name;
 		try {
 			logSection(output, `Update package: ${name}`);
 			output.show(true);
 			await withPackageProgress(`Updating ${name}…`, async () => {
 				await pipUpdatePackage({ root, output, name });
 			});
-			tree.refresh();
+			packagesViewRef.current?.refresh();
 			void vscode.window.showInformationMessage(`Updated ${name}.`);
 		} catch (err) {
 			reportError(err);
 		}
 	};
+
+	const packagesView = new PackagesWebviewProvider(context.extensionUri, loadPackages, {
+		refresh: refreshPackages,
+		installPackage: installPackageCmd,
+		installFromRequirements,
+		updatePackage: updatePackageByName,
+		uninstallPackage: uninstallPackageByName,
+	});
+	packagesViewRef.current = packagesView;
+
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(PackagesWebviewProvider.viewType, packagesView, {
+			webviewOptions: { retainContextWhenHidden: true },
+		}),
+	);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(
@@ -253,11 +261,27 @@ export function activate(context: vscode.ExtensionContext) {
 		),
 		vscode.commands.registerCommand(
 			'pythonDependenciesManager.uninstallPackage',
-			uninstallPackageCmd,
+			async (arg?: { pkg?: PackageInfo } | string) => {
+				const name =
+					typeof arg === 'string' ? arg : arg?.pkg?.name;
+				if (!name) {
+					void vscode.window.showErrorMessage('Select a package in the Packages view.');
+					return;
+				}
+				await uninstallPackageByName(name);
+			},
 		),
 		vscode.commands.registerCommand(
 			'pythonDependenciesManager.updatePackage',
-			updatePackageCmd,
+			async (arg?: { pkg?: PackageInfo } | string) => {
+				const name =
+					typeof arg === 'string' ? arg : arg?.pkg?.name;
+				if (!name) {
+					void vscode.window.showErrorMessage('Select a package in the Packages view.');
+					return;
+				}
+				await updatePackageByName(name);
+			},
 		),
 	);
 
