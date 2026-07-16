@@ -2,9 +2,17 @@
   "name": "python-dependencies-manager",
   "displayName": "Python Dependencies Manager",
   "description": "Gerencia a .venv do projeto com pip: detecta requirements.txt, cria o ambiente se faltar, instala dependências e lista/instala/desinstala/atualiza pacotes — no estilo do gerenciador do PyCharm.",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "rafacho",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davisilvarafacho/python-dependencies-manager.git"
+  },
+  "homepage": "https://github.com/davisilvarafacho/python-dependencies-manager#readme",
+  "bugs": {
+    "url": "https://github.com/davisilvarafacho/python-dependencies-manager/issues"
+  },
   "engines": {
     "vscode": "^1.106.1"
   },

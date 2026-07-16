@@ -4,7 +4,7 @@
 
 Extension VS Code qui gère les dépendances Python du **`.venv` du projet** avec **pip**, dans l’esprit du gestionnaire de paquets de PyCharm.
 
-**État :** MVP implémenté. Checklist manuelle : [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
+**État :** **v1.0.0** — release stable. Checklist manuelle : [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
 
 ## Fonctionnalités
 
