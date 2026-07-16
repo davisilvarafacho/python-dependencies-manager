@@ -38,25 +38,23 @@ Extensão para o VS Code que gerencia as dependências Python da **`.venv` do pr
 
 Se **já existir `.venv`**, a notificação **não** é exibida. O comando manual continua disponível.
 
-### View de pacotes
+### View de pacotes (instalados)
 
 Na Activity Bar → **Python Dependencies**:
 
-| Situação | Comportamento |
-|----------|----------------|
-| Campo de busca **vazio** | Lista pacotes **instalados** na `.venv` |
-| Campo com texto (ex.: `django-`) | Busca real no **PyPI** por nome (≥50 resultados com o termo no nome), versão e botão **Install** |
+- **Filtro fixo** no topo: filtra **apenas** os pacotes **já instalados** na `.venv`
+- Botões **Update** / **Remove** em cada linha
+- Toolbar: **Refresh**, **Install Package** (+), **Install from requirements.txt**
 
-Nos instalados: botões **Update** e **Remove**.  
-Na toolbar da view: **Refresh**, **Install Package**, **Install from requirements.txt**.
+### Instalar pacotes (botão + / QuickPick PyPI)
 
-### Instalar pacote (QuickPick / PyPI)
+Aberto pelo **+ Install Package** (toolbar ou Command Palette) — **separado** do filtro da lista:
 
-- Busca com debounce no PyPI
-- **Última versão à direita**
-- Resumo do pacote
-- Texto livre (spec `name==1.0`, git, etc.)
-- Depois da instalação: opção de **`pip freeze` → `requirements.txt`**
+- Busca no **PyPI** (ex.: `django-` → ≥50 resultados)
+- **Última versão à direita**, resumo abaixo
+- **Seleção múltipla** (marque vários) → Enter instala todos de uma vez
+- Texto livre (`name==1.0`, git, etc.)
+- Depois: opção de **`pip freeze` → `requirements.txt`**
 
 ### Command Palette
 
@@ -66,7 +64,7 @@ Categoria **Python Dependencies**:
 |---------|-----------|
 | `Install from requirements.txt` | Fluxo completo (sempre disponível) |
 | `Refresh Packages` | Recarrega a lista da `.venv` |
-| `Install Package` | Busca PyPI + `pip install` |
+| `Install Package` | Busca PyPI multi-select + `pip install` |
 
 ## Feedback e logs
 

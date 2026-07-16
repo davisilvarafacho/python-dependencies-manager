@@ -38,25 +38,23 @@ Extension VS Code qui gère les dépendances Python du **`.venv` du projet** ave
 
 Si **`.venv` existe déjà**, la notification **n’apparaît pas**. La commande manuelle reste disponible.
 
-### Vue des paquets
+### Vue des paquets (installés)
 
 Barre d’activité → **Python Dependencies** :
 
-| Situation | Comportement |
-|-----------|--------------|
-| Champ de recherche **vide** | Liste les paquets **installés** dans `.venv` |
-| Texte saisi (ex. : `django-`) | Recherche réelle sur **PyPI** par nom (≥50 résultats dont le nom contient le terme), version et bouton **Install** |
+- **Filtre fixe** en haut : filtre **uniquement** les paquets **déjà installés** dans `.venv`
+- Boutons **Update** / **Remove** sur chaque ligne
+- Barre d’outils : **Refresh**, **Install Package** (+), **Install from requirements.txt**
 
-Sur les installés : boutons **Update** et **Remove**.  
-Barre d’outils de la vue : **Refresh**, **Install Package**, **Install from requirements.txt**.
+### Installer des paquets (bouton + / QuickPick PyPI)
 
-### Installer un paquet (QuickPick / PyPI)
+Ouvert via **+ Install Package** (toolbar ou palette) — **séparé** du filtre de la liste :
 
-- Recherche PyPI avec debounce  
-- **Dernière version à droite**  
-- Résumé du paquet  
-- Texte libre (spec `name==1.0`, git, etc.)  
-- Après installation : option **`pip freeze` → `requirements.txt`**
+- Recherche **PyPI** (ex. : `django-` → ≥50 résultats)
+- **Dernière version à droite**, résumé en dessous
+- **Sélection multiple** → Entrée installe tout d’un coup
+- Texte libre (`name==1.0`, git, etc.)
+- Ensuite : option **`pip freeze` → `requirements.txt`**
 
 ### Palette de commandes
 
@@ -66,7 +64,7 @@ Catégorie **Python Dependencies** :
 |----------|-------------|
 | `Install from requirements.txt` | Flux complet (toujours disponible) |
 | `Refresh Packages` | Recharge la liste du `.venv` |
-| `Install Package` | Recherche PyPI + `pip install` |
+| `Install Package` | Recherche PyPI multi-sélection + `pip install` |
 
 ## Retour d’information et journaux
 

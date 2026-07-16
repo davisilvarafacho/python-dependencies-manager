@@ -151,9 +151,16 @@ export async function listPackages(options: PipBaseOptions): Promise<PackageInfo
 }
 
 export async function installPackage(
-	options: PipBaseOptions & { spec: string },
+	options: PipBaseOptions & { spec: string | string[] },
 ): Promise<void> {
-	await runPip(options, ['install', options.spec], 'install');
+	const specs = (Array.isArray(options.spec) ? options.spec : [options.spec])
+		.map((s) => s.trim())
+		.filter(Boolean);
+	if (specs.length === 0) {
+		throw new Error('No package spec provided to install');
+	}
+	log(options.output, 'pip', `Installing ${specs.length} package(s): ${specs.join(', ')}`);
+	await runPip(options, ['install', ...specs], 'install');
 }
 
 export async function uninstallPackage(

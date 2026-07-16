@@ -1,35 +1,26 @@
 import * as vscode from 'vscode';
 import { filterPackages } from './packagesFilter';
 import type { PackageInfo } from './pipService';
-import { DEFAULT_SEARCH_LIMIT, searchPypiPackages, type PypiPackageHit } from './pypiClient';
 
 export type PackagesWebviewActions = {
 	refresh: () => Promise<void>;
 	installPackage: () => Promise<void>;
 	installFromRequirements: () => Promise<void>;
-	/** Install a concrete package name/spec from PyPI search results. */
-	installNamedPackage: (spec: string) => Promise<void>;
 	updatePackage: (name: string) => Promise<void>;
 	uninstallPackage: (name: string) => Promise<void>;
 };
 
-type ViewMode = 'installed' | 'search';
-
 /**
- * Activity Bar webview with a sticky search input.
- * Empty query → installed packages; non-empty → real PyPI name search (≥50 hits).
+ * Activity Bar webview: sticky filter for installed packages only.
+ * PyPI discovery lives in the Install Package command (QuickPick).
  */
 export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'pythonDependenciesManager.packages';
 
 	private view?: vscode.WebviewView;
 	private packages: PackageInfo[] = [];
-	private searchHits: PypiPackageHit[] = [];
 	private status = 'Loading…';
 	private filter = '';
-	private mode: ViewMode = 'installed';
-	private searchSeq = 0;
-	private searchTimer?: NodeJS.Timeout;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -50,13 +41,14 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
 		webviewView.webview.html = this.getHtml(webviewView.webview);
 
 		webviewView.webview.onDidReceiveMessage(
-			async (msg: { type: string; name?: string; query?: string; spec?: string }) => {
+			async (msg: { type: string; name?: string; query?: string }) => {
 				switch (msg.type) {
 					case 'ready':
 						await this.reload();
 						break;
-					case 'query':
-						this.onQueryChanged(msg.query ?? '');
+					case 'filter':
+						this.filter = msg.query ?? '';
+						this.postState();
 						break;
 					case 'refresh':
 						await this.actions.refresh();
@@ -66,11 +58,6 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
 						break;
 					case 'installFromRequirements':
 						await this.actions.installFromRequirements();
-						break;
-					case 'installSpec':
-						if (msg.spec) {
-							await this.actions.installNamedPackage(msg.spec);
-						}
 						break;
 					case 'update':
 						if (msg.name) {
@@ -94,17 +81,13 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
 		this.postState();
 		try {
 			this.packages = await this.loadPackages();
-			if (this.mode === 'installed') {
-				this.status =
-					this.packages.length === 0
-						? 'No packages in .venv'
-						: `${this.packages.length} installed package(s)`;
-			}
+			this.status =
+				this.packages.length === 0
+					? 'No packages in .venv'
+					: `${this.packages.length} installed package(s)`;
 		} catch (err) {
 			this.packages = [];
-			if (this.mode === 'installed') {
-				this.status = err instanceof Error ? err.message : String(err);
-			}
+			this.status = err instanceof Error ? err.message : String(err);
 		}
 		this.postState();
 	}
@@ -113,82 +96,23 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
 		void this.reload();
 	}
 
-	private onQueryChanged(query: string): void {
-		this.filter = query;
-		const q = query.trim();
-		if (!q) {
-			if (this.searchTimer) {
-				clearTimeout(this.searchTimer);
-			}
-			this.mode = 'installed';
-			this.searchHits = [];
-			this.status =
-				this.packages.length === 0
-					? 'No packages in .venv'
-					: `${this.packages.length} installed package(s)`;
-			this.postState();
-			return;
-		}
-
-		this.mode = 'search';
-		this.status = `Searching PyPI for “${q}”…`;
-		this.postState();
-
-		if (this.searchTimer) {
-			clearTimeout(this.searchTimer);
-		}
-		const mySeq = ++this.searchSeq;
-		this.searchTimer = setTimeout(() => {
-			void this.runPypiSearch(q, mySeq);
-		}, 320);
-	}
-
-	private async runPypiSearch(q: string, seq: number): Promise<void> {
-		try {
-			const hits = await searchPypiPackages(q, DEFAULT_SEARCH_LIMIT);
-			if (seq !== this.searchSeq) {
-				return;
-			}
-			this.searchHits = hits;
-			this.status =
-				hits.length === 0
-					? `No PyPI packages matching “${q}”`
-					: `${hits.length} PyPI result(s) for “${q}” (name contains query)`;
-			this.postState();
-		} catch (err) {
-			if (seq !== this.searchSeq) {
-				return;
-			}
-			this.searchHits = [];
-			this.status = `PyPI search failed: ${err instanceof Error ? err.message : String(err)}`;
-			this.postState();
-		}
-	}
-
 	private postState(): void {
 		if (!this.view) {
 			return;
 		}
-		if (this.mode === 'search') {
-			void this.view.webview.postMessage({
-				type: 'state',
-				mode: 'search',
-				packages: this.searchHits,
-				total: this.searchHits.length,
-				filter: this.filter,
-				status: this.status,
-			});
-			return;
-		}
-
 		const filtered = filterPackages(this.packages, this.filter);
+		const total = this.packages.length;
+		const shown = filtered.length;
+		const filterNote =
+			this.filter.trim() && total
+				? ` · showing ${shown} of ${total}`
+				: '';
 		void this.view.webview.postMessage({
 			type: 'state',
-			mode: 'installed',
 			packages: filtered,
-			total: this.packages.length,
+			total,
 			filter: this.filter,
-			status: this.status,
+			status: `${this.status}${filterNote}`,
 		});
 	}
 
@@ -281,11 +205,6 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
       font-size: 0.9em;
       margin-top: 2px;
     }
-    .summary {
-      opacity: 0.65;
-      font-size: 0.85em;
-      margin-top: 2px;
-    }
     .actions {
       display: flex;
       gap: 4px;
@@ -312,8 +231,8 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
 <body>
   <div class="wrap">
     <div class="search-bar">
-      <input id="filter" type="search" placeholder="Search PyPI (e.g. django-)…" autocomplete="off" spellcheck="false" />
-      <div class="hint">Empty = installed packages · Type to search PyPI by name (≥50 results)</div>
+      <input id="filter" type="search" placeholder="Filter installed packages…" autocomplete="off" spellcheck="false" />
+      <div class="hint">Filters the list below · Use + Install Package to search PyPI</div>
     </div>
     <div class="meta" id="meta"></div>
     <div class="list" id="list"></div>
@@ -325,7 +244,7 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
     const metaEl = document.getElementById('meta');
 
     filterEl.addEventListener('input', () => {
-      vscode.postMessage({ type: 'query', query: filterEl.value });
+      vscode.postMessage({ type: 'filter', query: filterEl.value });
     });
 
     window.addEventListener('message', (event) => {
@@ -340,11 +259,12 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
       if (pkgs.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
-        empty.textContent = msg.status || 'No packages';
+        empty.textContent = msg.filter
+          ? 'No installed packages match “' + msg.filter + '”'
+          : (msg.status || 'No packages');
         listEl.appendChild(empty);
         return;
       }
-      const isSearch = msg.mode === 'search';
       for (const pkg of pkgs) {
         const row = document.createElement('div');
         row.className = 'row';
@@ -357,36 +277,20 @@ export class PackagesWebviewProvider implements vscode.WebviewViewProvider {
         ver.textContent = pkg.version || '';
         left.appendChild(name);
         left.appendChild(ver);
-        if (pkg.summary) {
-          const sum = document.createElement('div');
-          sum.className = 'summary';
-          sum.textContent = pkg.summary;
-          left.appendChild(sum);
-        }
         const actions = document.createElement('div');
         actions.className = 'actions';
-        if (isSearch) {
-          const add = document.createElement('button');
-          add.textContent = 'Install';
-          add.title = 'Install from PyPI';
-          add.addEventListener('click', () =>
-            vscode.postMessage({ type: 'installSpec', spec: pkg.name })
-          );
-          actions.appendChild(add);
-        } else {
-          const up = document.createElement('button');
-          up.textContent = 'Update';
-          up.addEventListener('click', () =>
-            vscode.postMessage({ type: 'update', name: pkg.name })
-          );
-          const del = document.createElement('button');
-          del.textContent = 'Remove';
-          del.addEventListener('click', () =>
-            vscode.postMessage({ type: 'uninstall', name: pkg.name })
-          );
-          actions.appendChild(up);
-          actions.appendChild(del);
-        }
+        const up = document.createElement('button');
+        up.textContent = 'Update';
+        up.addEventListener('click', () =>
+          vscode.postMessage({ type: 'update', name: pkg.name })
+        );
+        const del = document.createElement('button');
+        del.textContent = 'Remove';
+        del.addEventListener('click', () =>
+          vscode.postMessage({ type: 'uninstall', name: pkg.name })
+        );
+        actions.appendChild(up);
+        actions.appendChild(del);
         row.appendChild(left);
         row.appendChild(actions);
         listEl.appendChild(row);

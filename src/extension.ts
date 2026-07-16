@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { runInstallFromRequirements } from './installFlow';
 import { log, logSection } from './log';
 import { createOutputChannel } from './output';
-import { pickPackageToInstall } from './packageInstallQuickPick';
+import { pickPackagesToInstall } from './packageInstallQuickPick';
 import { NoVenvError } from './packagesTree';
 import { PackagesWebviewProvider } from './packagesWebview';
 import { requirementsExists, venvExists } from './paths';
@@ -145,10 +145,12 @@ export function activate(context: vscode.ExtensionContext) {
 		await packagesViewRef.current?.reload();
 	};
 
-	const installSpecAndMaybeFreeze = async (
-		spec: string,
-		versionHint?: string,
-	): Promise<void> => {
+	const installSpecsAndMaybeFreeze = async (specs: string[]): Promise<void> => {
+		const cleaned = [...new Set(specs.map((s) => s.trim()).filter(Boolean))];
+		if (cleaned.length === 0) {
+			return;
+		}
+
 		const root = requireRoot();
 		if (!root) {
 			return;
@@ -158,19 +160,21 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
+		const label =
+			cleaned.length === 1 ? cleaned[0] : `${cleaned.length} packages`;
+
 		try {
-			logSection(output, `Install package: ${spec}`);
-			if (versionHint) {
-				log(output, 'cmd', `PyPI latest version shown: ${versionHint}`);
-			}
+			logSection(output, `Install package(s): ${cleaned.join(', ')}`);
 			output.show(true);
-			await withPackageProgress(`Installing ${spec}…`, async () => {
-				await pipInstallPackage({ root, output, spec });
+			await withPackageProgress(`Installing ${label}…`, async () => {
+				await pipInstallPackage({ root, output, spec: cleaned });
 			});
 			packagesViewRef.current?.refresh();
 
 			const freezeChoice = await vscode.window.showInformationMessage(
-				`Installed ${spec}. Update requirements.txt with pip freeze?`,
+				cleaned.length === 1
+					? `Installed ${cleaned[0]}. Update requirements.txt with pip freeze?`
+					: `Installed ${cleaned.length} packages. Update requirements.txt with pip freeze?`,
 				'Yes',
 				'No',
 			);
@@ -184,7 +188,11 @@ export function activate(context: vscode.ExtensionContext) {
 				);
 			} else {
 				log(output, 'cmd', 'User declined freeze to requirements.txt');
-				void vscode.window.showInformationMessage(`Installed ${spec}.`);
+				void vscode.window.showInformationMessage(
+					cleaned.length === 1
+						? `Installed ${cleaned[0]}.`
+						: `Installed ${cleaned.length} packages.`,
+				);
 			}
 		} catch (err) {
 			reportError(err);
@@ -201,19 +209,11 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const picked = await pickPackageToInstall();
-		if (!picked?.spec?.trim()) {
+		const picked = await pickPackagesToInstall();
+		if (!picked?.length) {
 			return;
 		}
-		await installSpecAndMaybeFreeze(picked.spec.trim(), picked.version);
-	};
-
-	const installNamedPackage = async (spec: string) => {
-		const trimmed = spec.trim();
-		if (!trimmed) {
-			return;
-		}
-		await installSpecAndMaybeFreeze(trimmed);
+		await installSpecsAndMaybeFreeze(picked.map((p) => p.spec));
 	};
 
 	const uninstallPackageByName = async (name: string) => {
@@ -275,7 +275,6 @@ export function activate(context: vscode.ExtensionContext) {
 		refresh: refreshPackages,
 		installPackage: installPackageCmd,
 		installFromRequirements,
-		installNamedPackage,
 		updatePackage: updatePackageByName,
 		uninstallPackage: uninstallPackageByName,
 	});

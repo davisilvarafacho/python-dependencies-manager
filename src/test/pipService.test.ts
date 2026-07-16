@@ -105,6 +105,27 @@ suite('pipService', () => {
 		assert.deepStrictEqual(opts!.args, ['-m', 'pip', 'install', 'requests==2.32.0']);
 	});
 
+	test('installPackage accepts multiple specs in one pip install', async () => {
+		let opts: RunProcessOptions | undefined;
+		await installPackage({
+			root: '/proj',
+			output,
+			spec: ['requests', 'six', 'django-filter'],
+			run: withPipReady(async (o) => {
+				opts = o;
+				return { code: 0, stdout: '', stderr: '' };
+			}),
+		});
+		assert.deepStrictEqual(opts!.args, [
+			'-m',
+			'pip',
+			'install',
+			'requests',
+			'six',
+			'django-filter',
+		]);
+	});
+
 	test('uninstallPackage uses pip uninstall -y <name>', async () => {
 		let opts: RunProcessOptions | undefined;
 		await uninstallPackage({

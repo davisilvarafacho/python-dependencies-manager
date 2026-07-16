@@ -38,25 +38,23 @@ Extensión para VS Code que gestiona las dependencias Python del **`.venv` del p
 
 Si **ya existe `.venv`**, **no** se muestra la notificación. El comando manual sigue disponible.
 
-### Vista de paquetes
+### Vista de paquetes (instalados)
 
 Barra de actividad → **Python Dependencies**:
 
-| Situación | Comportamiento |
-|-----------|----------------|
-| Campo de búsqueda **vacío** | Lista los paquetes **instalados** en `.venv` |
-| Campo con texto (p. ej. `django-`) | Búsqueda real en **PyPI** por nombre (≥50 resultados cuyo nombre contiene el término), versión y botón **Install** |
+- **Filtro fijo** arriba: filtra **solo** los paquetes **ya instalados** en `.venv`
+- Botones **Update** / **Remove** en cada fila
+- Barra de herramientas: **Refresh**, **Install Package** (+), **Install from requirements.txt**
 
-En instalados: botones **Update** y **Remove**.  
-En la barra de la vista: **Refresh**, **Install Package**, **Install from requirements.txt**.
+### Instalar paquetes (botón + / QuickPick PyPI)
 
-### Instalar paquete (QuickPick / PyPI)
+Se abre con **+ Install Package** (toolbar o paleta) — **separado** del filtro de la lista:
 
-- Búsqueda con debounce en PyPI  
-- **Última versión a la derecha**  
-- Resumen del paquete  
-- Texto libre (spec `name==1.0`, git, etc.)  
-- Tras la instalación: opción de **`pip freeze` → `requirements.txt`**
+- Búsqueda en **PyPI** (p. ej. `django-` → ≥50 resultados)
+- **Última versión a la derecha**, resumen debajo
+- **Selección múltiple** → Enter instala todos de una vez
+- Texto libre (`name==1.0`, git, etc.)
+- Después: opción de **`pip freeze` → `requirements.txt`**
 
 ### Paleta de comandos
 
@@ -66,7 +64,7 @@ Categoría **Python Dependencies**:
 |---------|-------------|
 | `Install from requirements.txt` | Flujo completo (siempre disponible) |
 | `Refresh Packages` | Recarga la lista de `.venv` |
-| `Install Package` | Búsqueda en PyPI + `pip install` |
+| `Install Package` | Búsqueda PyPI multi-select + `pip install` |
 
 ## Comentarios y registros
 
