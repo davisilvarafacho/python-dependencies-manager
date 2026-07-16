@@ -36,9 +36,10 @@ Extensão para o VS Code que gerencia as dependências Python da **`.venv` do pr
 
 Na Activity Bar, abra **Python Dependencies** para:
 
-- **Campo de pesquisa fixo** no topo para filtrar pacotes instalados
-- Ver pacotes da `.venv` (nome + versão)
-- **Update** / **Remove** em cada linha
+- **Campo de pesquisa fixo** no topo:
+  - **vazio** → lista pacotes **instalados** na `.venv`
+  - **com texto** → busca real no **PyPI** por nome (ex.: `django-` retorna ≥50 pacotes cujo nome contém o termo), com versão e botão **Install**
+- **Update** / **Remove** nos instalados
 - Botões da view: Refresh, Install Package, Install from requirements.txt
 
 ### Instalar pacote (autocomplete PyPI)

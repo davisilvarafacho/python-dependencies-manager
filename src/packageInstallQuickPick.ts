@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import { searchPypiPackages, type PypiPackageHit } from './pypiClient';
+import {
+	DEFAULT_SEARCH_LIMIT,
+	searchPypiPackages,
+	type PypiPackageHit,
+} from './pypiClient';
 
 export type PackagePickResult = {
 	/** Value to pass to pip install (name or name==version if pinned later). */
@@ -14,7 +18,7 @@ export type PackagePickResult = {
  */
 export async function pickPackageToInstall(options?: {
 	debounceMs?: number;
-	search?: (query: string) => Promise<PypiPackageHit[]>;
+	search?: (query: string, limit?: number) => Promise<PypiPackageHit[]>;
 }): Promise<PackagePickResult | undefined> {
 	const debounceMs = options?.debounceMs ?? 280;
 	const search = options?.search ?? searchPypiPackages;
@@ -44,7 +48,7 @@ export async function pickPackageToInstall(options?: {
 		quickPick.busy = true;
 		void (async () => {
 			try {
-				const hits = await search(q);
+				const hits = await search(q, DEFAULT_SEARCH_LIMIT);
 				if (mySeq !== seq) {
 					return;
 				}

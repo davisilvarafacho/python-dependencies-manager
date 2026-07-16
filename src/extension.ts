@@ -145,7 +145,10 @@ export function activate(context: vscode.ExtensionContext) {
 		await packagesViewRef.current?.reload();
 	};
 
-	const installPackageCmd = async () => {
+	const installSpecAndMaybeFreeze = async (
+		spec: string,
+		versionHint?: string,
+	): Promise<void> => {
 		const root = requireRoot();
 		if (!root) {
 			return;
@@ -155,16 +158,10 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const picked = await pickPackageToInstall();
-		if (!picked?.spec?.trim()) {
-			return;
-		}
-		const spec = picked.spec.trim();
-
 		try {
 			logSection(output, `Install package: ${spec}`);
-			if (picked.version) {
-				log(output, 'cmd', `PyPI latest version shown: ${picked.version}`);
+			if (versionHint) {
+				log(output, 'cmd', `PyPI latest version shown: ${versionHint}`);
 			}
 			output.show(true);
 			await withPackageProgress(`Installing ${spec}…`, async () => {
@@ -192,6 +189,31 @@ export function activate(context: vscode.ExtensionContext) {
 		} catch (err) {
 			reportError(err);
 		}
+	};
+
+	const installPackageCmd = async () => {
+		const root = requireRoot();
+		if (!root) {
+			return;
+		}
+		if (!venvExists(root)) {
+			await offerNoVenvRecovery();
+			return;
+		}
+
+		const picked = await pickPackageToInstall();
+		if (!picked?.spec?.trim()) {
+			return;
+		}
+		await installSpecAndMaybeFreeze(picked.spec.trim(), picked.version);
+	};
+
+	const installNamedPackage = async (spec: string) => {
+		const trimmed = spec.trim();
+		if (!trimmed) {
+			return;
+		}
+		await installSpecAndMaybeFreeze(trimmed);
 	};
 
 	const uninstallPackageByName = async (name: string) => {
@@ -253,6 +275,7 @@ export function activate(context: vscode.ExtensionContext) {
 		refresh: refreshPackages,
 		installPackage: installPackageCmd,
 		installFromRequirements,
+		installNamedPackage,
 		updatePackage: updatePackageByName,
 		uninstallPackage: uninstallPackageByName,
 	});
