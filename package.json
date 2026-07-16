@@ -25,7 +25,13 @@
   ],
   "activationEvents": [
     "workspaceContains:requirements.txt",
-    "workspaceContains:.venv"
+    "workspaceContains:.venv",
+    "onView:pythonDependenciesManager.packages",
+    "onCommand:pythonDependenciesManager.installFromRequirements",
+    "onCommand:pythonDependenciesManager.refreshPackages",
+    "onCommand:pythonDependenciesManager.installPackage",
+    "onCommand:pythonDependenciesManager.uninstallPackage",
+    "onCommand:pythonDependenciesManager.updatePackage"
   ],
   "main": "./dist/extension.js",
   "contributes": {

@@ -11,6 +11,18 @@ suite('resolvePythonPathFromApi', () => {
 		assert.strictEqual(path, '/usr/bin/python3');
 	});
 
+	test('prefers resolveEnvironment executable path', async () => {
+		const path = await resolvePythonPathFromApi({
+			environments: {
+				getActiveEnvironmentPath: () => ({ id: 'env-1', path: 'env-id-not-a-binary' }),
+				resolveEnvironment: async () => ({
+					executable: { uri: { fsPath: '/real/bin/python3' } },
+				}),
+			},
+		});
+		assert.strictEqual(path, '/real/bin/python3');
+	});
+
 	test('uses environments.getActiveEnvironmentPath string', async () => {
 		const path = await resolvePythonPathFromApi({
 			environments: {

@@ -16,8 +16,9 @@ Extensão para o VS Code que gerencia as dependências Python da **`.venv` do pr
 ## Pré-requisitos
 
 - [Visual Studio Code](https://code.visualstudio.com/) (ou fork compatível com a API de extensões)
-- Extensão **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** instalada
+- Extensão **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** instalada **na janela Extension Development Host** (quando testar com F5)
 - Um **interpretador Python** selecionado no workspace (`Python: Select Interpreter`)
+- Módulo **venv** do Python disponível (Debian/Ubuntu: `sudo apt install python3-venv` ou `python3.12-venv`)
 - Projeto aberto como **uma pasta** (raiz com `requirements.txt` e, se existir, `.venv`)
 
 ## Como usar
@@ -74,10 +75,33 @@ pnpm run compile
 
 No VS Code: **F5** (Run Extension) abre uma janela Extension Development Host.
 
+Pasta de teste pronta: `fixtures/sample-project/` (tem `requirements.txt`).
+
 ```bash
 pnpm run lint
 pnpm test
 ```
+
+### Como testar com F5 (passo a passo)
+
+1. Abra **este repositório** no VS Code
+2. `pnpm install` e `pnpm run compile`
+3. **F5** → abre a janela **Extension Development Host**
+4. Nessa janela: **File → Open Folder** → escolha `fixtures/sample-project` (não a raiz do repo da extensão)
+5. Instale a extensão **Python** se pedir; rode **Python: Select Interpreter**
+6. Deve aparecer a notificação do `requirements.txt` (ou rode **Python Dependencies: Install from requirements.txt**)
+7. Activity Bar → ícone **Python Dependencies** → lista de pacotes
+8. Log: **View → Output → Python Dependencies Manager**
+
+### Se “não funciona”
+
+| Sintoma | Causa comum | O que fazer |
+|---------|-------------|-------------|
+| F5 trava em “preLaunchTask” | task `watch` nunca termina | Já corrigido: F5 usa `npm: compile` |
+| View vazia / extensão “morta” | não ativou | Abrir pasta com `requirements.txt`, clicar na view, ou rodar um comando da extensão |
+| Erro de venv / ensurepip | falta `python3-venv` | `sudo apt install python3.12-venv` |
+| Pedido de interpretador | Python extension / interpreter | Instalar **Python** e **Select Interpreter** na janela Host |
+| Avisos ConfigCat no log | VS Code / GitHub / Graphite | **Não** são desta extensão — ignore |
 
 Empacotar:
 

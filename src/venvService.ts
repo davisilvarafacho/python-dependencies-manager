@@ -29,10 +29,14 @@ export async function ensureVenv(options: {
 
 	if (result.code !== 0) {
 		const snippet = (result.stderr || result.stdout || '').trim().slice(0, 500);
+		const ensurepipHint =
+			/ensurepip|python3-venv|No module named venv/i.test(snippet)
+				? ' Install the venv module for your Python (on Debian/Ubuntu: sudo apt install python3-venv / python3.12-venv).'
+				: '';
 		throw new Error(
 			`Failed to create virtual environment (exit code ${result.code})${
 				snippet ? `: ${snippet}` : ''
-			}`,
+			}${ensurepipHint}`,
 		);
 	}
 

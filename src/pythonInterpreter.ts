@@ -10,6 +10,15 @@ export class InterpreterError extends Error {
 export type PythonExtensionApi = {
 	environments?: {
 		getActiveEnvironmentPath?: (resource?: unknown) => { path: string } | string | undefined;
+		resolveEnvironment?: (
+			path: unknown,
+		) => Promise<
+			| {
+					executable?: { uri?: { fsPath?: string }; path?: string };
+					path?: string;
+			  }
+			| undefined
+		>;
 	};
 	settings?: {
 		getExecutionDetails?: (resource?: unknown) => { execCommand?: string[] | undefined };
@@ -18,6 +27,27 @@ export type PythonExtensionApi = {
 
 export async function resolvePythonPathFromApi(api: PythonExtensionApi): Promise<string> {
 	const active = api.environments?.getActiveEnvironmentPath?.();
+
+	// Prefer resolveEnvironment so we get an executable path, not just an env id.
+	if (active !== undefined && api.environments?.resolveEnvironment) {
+		try {
+			const resolved = await api.environments.resolveEnvironment(active);
+			const fromUri = resolved?.executable?.uri?.fsPath;
+			if (fromUri?.trim()) {
+				return fromUri.trim();
+			}
+			const fromExecPath = resolved?.executable?.path;
+			if (fromExecPath?.trim()) {
+				return fromExecPath.trim();
+			}
+			if (resolved?.path?.trim()) {
+				return resolved.path.trim();
+			}
+		} catch {
+			// Fall through to raw path / settings.
+		}
+	}
+
 	if (typeof active === 'string' && active.trim()) {
 		return active.trim();
 	}
