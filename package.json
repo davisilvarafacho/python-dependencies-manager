@@ -3,7 +3,7 @@
   "displayName": "Python Dependencies Manager",
   "description": "Gerencia a .venv do projeto com pip: detecta requirements.txt, cria o ambiente se faltar, instala dependências e lista/instala/desinstala/atualiza pacotes — no estilo do gerenciador do PyCharm.",
   "version": "1.0.0",
-  "publisher": "rafacho",
+  "publisher": "davisilvarafacho",
   "license": "MIT",
   "repository": {
     "type": "git",
