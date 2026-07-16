@@ -227,6 +227,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 		const picked = await pickPackagesToInstall({
 			excludeNames,
+			cacheDir: context.globalStorageUri.fsPath,
+			onSearchInfo: (message) => {
+				log(output, 'pypi', message);
+			},
 			onSearchError: (message) => {
 				log(output, 'pypi', `search error: ${message}`);
 				output.show(true);

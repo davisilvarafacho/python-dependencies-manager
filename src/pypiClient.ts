@@ -1,5 +1,6 @@
+import * as fs from 'fs/promises';
 import * as https from 'https';
-import * as http from 'http';
+import * as path from 'path';
 
 export type PypiPackageHit = {
 	name: string;
@@ -9,25 +10,33 @@ export type PypiPackageHit = {
 
 export const DEFAULT_SEARCH_LIMIT = 50;
 
+/** In-memory cache of PyPI project names (lowercase for matching, original casing preserved). */
+let memoryNames: { names: string[]; fetchedAt: number } | null = null;
+const MEMORY_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const DISK_CACHE_FILE = 'pypi-simple-names.txt';
+const DISK_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
 export type SearchPypiOptions = {
 	limit?: number;
 	/** Package names already installed (lowercase) — omitted from results. */
 	excludeNames?: ReadonlySet<string>;
 	/**
 	 * When true (default), only names that *start with* the query are returned
-	 * (e.g. `django-` → `django-filter`, not `acdh-django-…`).
+	 * (e.g. `django-` → `django-filter`).
 	 */
 	prefixOnly?: boolean;
+	/** Directory for on-disk name index cache (extension globalStorage). */
+	cacheDir?: string;
 };
 
-function httpsGet(url: string, timeoutMs = 20000): Promise<string> {
+function httpsGet(url: string, headers: Record<string, string>, timeoutMs = 120_000): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const req = https.get(
 			url,
 			{
 				headers: {
 					'User-Agent': 'pip/24.0 python-dependencies-manager',
-					Accept: 'application/json, text/html',
+					...headers,
 				},
 			},
 			(res) => {
@@ -40,7 +49,7 @@ function httpsGet(url: string, timeoutMs = 20000): Promise<string> {
 					const next = res.headers.location.startsWith('http')
 						? res.headers.location
 						: new URL(res.headers.location, url).toString();
-					httpsGet(next, timeoutMs).then(resolve, reject);
+					httpsGet(next, headers, timeoutMs).then(resolve, reject);
 					res.resume();
 					return;
 				}
@@ -75,6 +84,8 @@ export async function fetchPypiPackage(
 	try {
 		const body = await httpsGet(
 			`https://pypi.org/pypi/${encodeURIComponent(trimmed)}/json`,
+			{ Accept: 'application/json' },
+			20_000,
 		);
 		const data = JSON.parse(body) as {
 			info?: { name?: string; version?: string; summary?: string };
@@ -93,150 +104,182 @@ export async function fetchPypiPackage(
 	}
 }
 
+function looksLikeCloudflareChallenge(body: string): boolean {
+	return (
+		body.includes('Client Challenge') ||
+		body.includes('JS Exception') ||
+		body.includes('_fs-ch-') ||
+		body.includes('Just a moment')
+	);
+}
+
 /**
- * Stream https://pypi.org/simple/ and collect package names matching query.
- * Default: prefix match only. Stops early once `limit` prefix hits are found.
+ * Download PyPI project names via PEP 691 JSON simple API
+ * (avoids HTML/Cloudflare JS challenge on /simple/).
  */
-export function searchPackageNamesFromSimpleIndex(
+export async function fetchAllPypiProjectNames(): Promise<string[]> {
+	const body = await httpsGet(
+		'https://pypi.org/simple/',
+		{
+			// PEP 691 — JSON simple index
+			Accept: 'application/vnd.pypi.simple.v1+json',
+		},
+		180_000,
+	);
+
+	if (looksLikeCloudflareChallenge(body)) {
+		throw new Error(
+			'PyPI returned a browser challenge page instead of the package index. Try again later or check network/proxy.',
+		);
+	}
+
+	let data: { projects?: Array<{ name?: string } | string> };
+	try {
+		data = JSON.parse(body) as { projects?: Array<{ name?: string } | string> };
+	} catch {
+		throw new Error(
+			'Failed to parse PyPI simple index JSON (unexpected response body).',
+		);
+	}
+
+	const projects = data.projects;
+	if (!Array.isArray(projects) || projects.length === 0) {
+		throw new Error('PyPI simple index JSON contained no projects.');
+	}
+
+	const names: string[] = [];
+	for (const p of projects) {
+		if (typeof p === 'string' && p.trim()) {
+			names.push(p.trim());
+		} else if (p && typeof p === 'object' && typeof p.name === 'string' && p.name.trim()) {
+			names.push(p.name.trim());
+		}
+	}
+	if (names.length === 0) {
+		throw new Error('PyPI simple index had projects but no usable names.');
+	}
+	return names;
+}
+
+async function readDiskCache(cacheDir: string): Promise<string[] | undefined> {
+	const file = path.join(cacheDir, DISK_CACHE_FILE);
+	const metaFile = path.join(cacheDir, DISK_CACHE_FILE + '.meta');
+	try {
+		const metaRaw = await fs.readFile(metaFile, 'utf8');
+		const meta = JSON.parse(metaRaw) as { fetchedAt?: number };
+		if (!meta.fetchedAt || Date.now() - meta.fetchedAt > DISK_TTL_MS) {
+			return undefined;
+		}
+		const text = await fs.readFile(file, 'utf8');
+		const names = text.split('\n').filter(Boolean);
+		return names.length > 0 ? names : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+async function writeDiskCache(cacheDir: string, names: string[]): Promise<void> {
+	try {
+		await fs.mkdir(cacheDir, { recursive: true });
+		const file = path.join(cacheDir, DISK_CACHE_FILE);
+		const metaFile = path.join(cacheDir, DISK_CACHE_FILE + '.meta');
+		await fs.writeFile(file, names.join('\n') + '\n', 'utf8');
+		await fs.writeFile(
+			metaFile,
+			JSON.stringify({ fetchedAt: Date.now(), count: names.length }),
+			'utf8',
+		);
+	} catch {
+		// Cache is best-effort
+	}
+}
+
+/**
+ * Return cached PyPI names (memory → disk → network).
+ */
+export async function getPypiProjectNames(cacheDir?: string): Promise<string[]> {
+	if (memoryNames && Date.now() - memoryNames.fetchedAt < MEMORY_TTL_MS) {
+		return memoryNames.names;
+	}
+
+	if (cacheDir) {
+		const fromDisk = await readDiskCache(cacheDir);
+		if (fromDisk) {
+			memoryNames = { names: fromDisk, fetchedAt: Date.now() };
+			return fromDisk;
+		}
+	}
+
+	const names = await fetchAllPypiProjectNames();
+	memoryNames = { names, fetchedAt: Date.now() };
+	if (cacheDir) {
+		void writeDiskCache(cacheDir, names);
+	}
+	return names;
+}
+
+/** Clear in-memory index (tests / force refresh). */
+export function clearPypiNameCache(): void {
+	memoryNames = null;
+}
+
+/**
+ * Filter package names by query (default: prefix match).
+ */
+export function filterPackageNames(
+	names: string[],
 	query: string,
 	limit = DEFAULT_SEARCH_LIMIT,
 	options?: {
 		excludeNames?: ReadonlySet<string>;
 		prefixOnly?: boolean;
 	},
-): Promise<string[]> {
+): string[] {
 	const q = query.trim().toLowerCase();
+	if (!q) {
+		return [];
+	}
 	const prefixOnly = options?.prefixOnly !== false;
 	const exclude = options?.excludeNames;
+	const out: string[] = [];
 
-	if (!q) {
-		return Promise.resolve([]);
+	for (const name of names) {
+		const key = name.toLowerCase();
+		if (exclude?.has(key)) {
+			continue;
+		}
+		const ok = prefixOnly ? key.startsWith(q) : key.includes(q);
+		if (!ok) {
+			continue;
+		}
+		out.push(name);
+		if (out.length >= limit) {
+			break;
+		}
 	}
+	return out;
+}
 
-	return new Promise((resolve, reject) => {
-		const starts: string[] = [];
-		const contains: string[] = [];
-		const seen = new Set<string>();
-		let buf = '';
-		let settled = false;
-		let intentionalAbort = false;
-
-		const finish = (names: string[]) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			resolve(names);
-		};
-
-		const fail = (err: Error) => {
-			if (settled || intentionalAbort) {
-				return;
-			}
-			settled = true;
-			reject(err);
-		};
-
-		const consider = (rawName: string) => {
-			let name: string;
-			try {
-				name = decodeURIComponent(rawName);
-			} catch {
-				name = rawName;
-			}
-			const key = name.toLowerCase();
-			if (seen.has(key) || exclude?.has(key)) {
-				return;
-			}
-			// Simple index uses normalized names (usually lowercase with hyphens).
-			if (prefixOnly) {
-				if (!key.startsWith(q)) {
-					return;
-				}
-				seen.add(key);
-				starts.push(name);
-				return;
-			}
-			if (!key.includes(q)) {
-				return;
-			}
-			seen.add(key);
-			if (key.startsWith(q)) {
-				starts.push(name);
-			} else if (contains.length < limit * 2) {
-				contains.push(name);
-			}
-		};
-
-		const req = https.get(
-			'https://pypi.org/simple/',
-			{
-				headers: {
-					'User-Agent': 'pip/24.0 python-dependencies-manager',
-					Accept: 'text/html',
-				},
-			},
-			(res: http.IncomingMessage) => {
-				if (res.statusCode && res.statusCode >= 400) {
-					fail(new Error(`HTTP ${res.statusCode} fetching PyPI simple index`));
-					res.resume();
-					return;
-				}
-				res.setEncoding('utf8');
-				res.on('data', (chunk: string) => {
-					if (settled) {
-						return;
-					}
-					buf += chunk;
-					const re = /href="\/simple\/([^"/]+)\/"/g;
-					let m: RegExpExecArray | null;
-					let lastIndex = 0;
-					while ((m = re.exec(buf)) !== null) {
-						lastIndex = re.lastIndex;
-						consider(m[1]);
-						if (starts.length >= limit) {
-							// Resolve first, then abort stream (avoids race with error handlers).
-							finish(starts.slice(0, limit));
-							intentionalAbort = true;
-							res.destroy();
-							req.destroy();
-							return;
-						}
-					}
-					if (lastIndex > 0) {
-						buf = buf.slice(lastIndex);
-					} else if (buf.length > 50_000) {
-						buf = buf.slice(-2_000);
-					}
-				});
-				res.on('end', () => {
-					if (prefixOnly) {
-						finish(starts.slice(0, limit));
-					} else {
-						finish([...starts, ...contains].slice(0, limit));
-					}
-				});
-				res.on('error', (err) => {
-					if (intentionalAbort || settled) {
-						return;
-					}
-					fail(err instanceof Error ? err : new Error(String(err)));
-				});
-			},
-		);
-		req.setTimeout(180_000, () => {
-			if (!settled) {
-				intentionalAbort = true;
-				req.destroy();
-				fail(new Error('Timeout streaming PyPI simple index'));
-			}
-		});
-		req.on('error', (err) => {
-			if (intentionalAbort || settled) {
-				return;
-			}
-			fail(err instanceof Error ? err : new Error(String(err)));
-		});
+/**
+ * Search package names via cached simple index (prefix by default).
+ */
+export async function searchPackageNamesFromSimpleIndex(
+	query: string,
+	limit = DEFAULT_SEARCH_LIMIT,
+	options?: {
+		excludeNames?: ReadonlySet<string>;
+		prefixOnly?: boolean;
+		cacheDir?: string;
+	},
+): Promise<string[]> {
+	const q = query.trim();
+	if (!q) {
+		return [];
+	}
+	const all = await getPypiProjectNames(options?.cacheDir);
+	return filterPackageNames(all, q, limit, {
+		excludeNames: options?.excludeNames,
+		prefixOnly: options?.prefixOnly,
 	});
 }
 
@@ -265,8 +308,8 @@ async function enrichNamesWithMetadata(
 }
 
 /**
- * Search PyPI package names (simple index) and attach latest version.
- * By default: prefix match, 50 results, optional exclude of installed packages.
+ * Search PyPI package names and attach latest version.
+ * Uses PEP 691 JSON index + local cache (not HTML scrape).
  */
 export async function searchPypiPackages(
 	query: string,
@@ -288,10 +331,10 @@ export async function searchPypiPackages(
 	const names = await searchPackageNamesFromSimpleIndex(q, limit, {
 		excludeNames: opts.excludeNames,
 		prefixOnly,
+		cacheDir: opts.cacheDir,
 	});
 
 	if (names.length === 0) {
-		// Exact lookup only when the typed name is a real package (not a bare prefix like "django-")
 		if (!q.endsWith('-') && !opts.excludeNames?.has(q.toLowerCase())) {
 			const exact = await fetchPypiPackage(q);
 			return exact ? [exact] : [];

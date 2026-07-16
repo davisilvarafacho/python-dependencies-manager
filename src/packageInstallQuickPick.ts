@@ -20,20 +20,29 @@ export async function pickPackagesToInstall(options?: {
 	debounceMs?: number;
 	/** Lowercase installed package names to hide from results. */
 	excludeNames?: ReadonlySet<string>;
+	/** Extension globalStorage path for PyPI name index cache. */
+	cacheDir?: string;
 	search?: (
 		query: string,
-		opts?: { limit?: number; excludeNames?: ReadonlySet<string> },
+		opts?: {
+			limit?: number;
+			excludeNames?: ReadonlySet<string>;
+			cacheDir?: string;
+		},
 	) => Promise<PypiPackageHit[]>;
 	onSearchError?: (message: string) => void;
+	onSearchInfo?: (message: string) => void;
 }): Promise<PackagePickResult[] | undefined> {
 	const debounceMs = options?.debounceMs ?? 280;
 	const excludeNames = options?.excludeNames ?? new Set<string>();
+	const cacheDir = options?.cacheDir;
 	const search =
 		options?.search ??
 		((query, opts) =>
 			searchPypiPackages(query, {
 				limit: opts?.limit ?? DEFAULT_SEARCH_LIMIT,
 				excludeNames: opts?.excludeNames,
+				cacheDir: opts?.cacheDir,
 				prefixOnly: true,
 			}));
 
@@ -117,16 +126,23 @@ export async function pickPackagesToInstall(options?: {
 			return;
 		}
 		quickPick.busy = true;
+		options?.onSearchInfo?.(`Searching PyPI for packages starting with “${q}”…`);
 		void (async () => {
 			try {
 				const hits = await search(q, {
 					limit: DEFAULT_SEARCH_LIMIT,
 					excludeNames,
+					cacheDir,
 				});
 				if (mySeq !== seq) {
 					return;
 				}
 				rememberSelection();
+				options?.onSearchInfo?.(
+					hits.length > 0
+						? `Found ${hits.length} package(s) starting with “${q}”`
+						: `No packages starting with “${q}”`,
+				);
 				const items: PickItem[] = hits.map((hit) => ({
 					label: hit.name,
 					description: hit.version,
