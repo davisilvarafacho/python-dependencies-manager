@@ -16,24 +16,38 @@ function fakeContext(initial: Record<string, unknown> = {}): vscode.ExtensionCon
 	} as unknown as vscode.ExtensionContext;
 }
 
+/** Defaults for a fresh project that should prompt. */
+function baseOpts(
+	overrides: Partial<Parameters<typeof maybePromptInstallFromRequirements>[0]> = {},
+) {
+	const prefs = overrides.preferences ?? new PromptPreferences(fakeContext());
+	return {
+		root: '/proj' as string | undefined,
+		requirementsExists: true,
+		venvExists: false,
+		onInstall: async () => {},
+		...overrides,
+		preferences: prefs,
+	};
+}
+
 suite('maybePromptInstallFromRequirements', () => {
 	test('skips when no root', async () => {
 		let shown = false;
 		let installed = false;
-		const prefs = new PromptPreferences(fakeContext());
 
-		await maybePromptInstallFromRequirements({
-			root: undefined,
-			preferences: prefs,
-			requirementsExists: true,
-			onInstall: async () => {
-				installed = true;
-			},
-			showInformationMessage: async () => {
-				shown = true;
-				return undefined;
-			},
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				root: undefined,
+				onInstall: async () => {
+					installed = true;
+				},
+				showInformationMessage: async () => {
+					shown = true;
+					return undefined;
+				},
+			}),
+		);
 
 		assert.strictEqual(shown, false);
 		assert.strictEqual(installed, false);
@@ -41,18 +55,32 @@ suite('maybePromptInstallFromRequirements', () => {
 
 	test('skips when no requirements.txt', async () => {
 		let shown = false;
-		const prefs = new PromptPreferences(fakeContext());
 
-		await maybePromptInstallFromRequirements({
-			root: '/proj',
-			preferences: prefs,
-			requirementsExists: false,
-			onInstall: async () => {},
-			showInformationMessage: async () => {
-				shown = true;
-				return undefined;
-			},
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				requirementsExists: false,
+				showInformationMessage: async () => {
+					shown = true;
+					return undefined;
+				},
+			}),
+		);
+
+		assert.strictEqual(shown, false);
+	});
+
+	test('skips when .venv already exists', async () => {
+		let shown = false;
+
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				venvExists: true,
+				showInformationMessage: async () => {
+					shown = true;
+					return undefined;
+				},
+			}),
+		);
 
 		assert.strictEqual(shown, false);
 	});
@@ -62,37 +90,34 @@ suite('maybePromptInstallFromRequirements', () => {
 		const prefs = new PromptPreferences(fakeContext());
 		prefs.setNotNowThisSession();
 
-		await maybePromptInstallFromRequirements({
-			root: '/proj',
-			preferences: prefs,
-			requirementsExists: true,
-			onInstall: async () => {},
-			showInformationMessage: async () => {
-				shown = true;
-				return undefined;
-			},
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				preferences: prefs,
+				showInformationMessage: async () => {
+					shown = true;
+					return undefined;
+				},
+			}),
+		);
 
 		assert.strictEqual(shown, false);
 	});
 
 	test('Install runs onInstall', async () => {
 		let installed = false;
-		const prefs = new PromptPreferences(fakeContext());
 		const messages: string[] = [];
 
-		await maybePromptInstallFromRequirements({
-			root: '/proj',
-			preferences: prefs,
-			requirementsExists: true,
-			onInstall: async () => {
-				installed = true;
-			},
-			showInformationMessage: (async (msg: string) => {
-				messages.push(String(msg));
-				return 'Install';
-			}) as typeof vscode.window.showInformationMessage,
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				onInstall: async () => {
+					installed = true;
+				},
+				showInformationMessage: (async (msg: string) => {
+					messages.push(String(msg));
+					return 'Install';
+				}) as typeof vscode.window.showInformationMessage,
+			}),
+		);
 
 		assert.strictEqual(installed, true);
 		assert.ok(messages[0]?.includes('requirements.txt detected'));
@@ -101,13 +126,13 @@ suite('maybePromptInstallFromRequirements', () => {
 	test('Not now sets session flag', async () => {
 		const prefs = new PromptPreferences(fakeContext());
 
-		await maybePromptInstallFromRequirements({
-			root: '/proj',
-			preferences: prefs,
-			requirementsExists: true,
-			onInstall: async () => {},
-			showInformationMessage: (async () => 'Not now') as typeof vscode.window.showInformationMessage,
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				preferences: prefs,
+				showInformationMessage: (async () =>
+					'Not now') as typeof vscode.window.showInformationMessage,
+			}),
+		);
 
 		assert.strictEqual(prefs.notNowThisSession, true);
 		assert.strictEqual(prefs.shouldAutoPrompt(), false);
@@ -116,14 +141,13 @@ suite('maybePromptInstallFromRequirements', () => {
 	test("Don't ask again persists preference", async () => {
 		const prefs = new PromptPreferences(fakeContext());
 
-		await maybePromptInstallFromRequirements({
-			root: '/proj',
-			preferences: prefs,
-			requirementsExists: true,
-			onInstall: async () => {},
-			showInformationMessage: (async () =>
-				"Don't ask again") as typeof vscode.window.showInformationMessage,
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				preferences: prefs,
+				showInformationMessage: (async () =>
+					"Don't ask again") as typeof vscode.window.showInformationMessage,
+			}),
+		);
 
 		assert.strictEqual(prefs.dontAskAgain, true);
 		assert.strictEqual(prefs.shouldAutoPrompt(), false);
@@ -133,16 +157,16 @@ suite('maybePromptInstallFromRequirements', () => {
 		let installed = false;
 		const prefs = new PromptPreferences(fakeContext());
 
-		await maybePromptInstallFromRequirements({
-			root: '/proj',
-			preferences: prefs,
-			requirementsExists: true,
-			onInstall: async () => {
-				installed = true;
-			},
-			showInformationMessage: (async () =>
-				undefined) as typeof vscode.window.showInformationMessage,
-		});
+		await maybePromptInstallFromRequirements(
+			baseOpts({
+				preferences: prefs,
+				onInstall: async () => {
+					installed = true;
+				},
+				showInformationMessage: (async () =>
+					undefined) as typeof vscode.window.showInformationMessage,
+			}),
+		);
 
 		assert.strictEqual(installed, false);
 		assert.strictEqual(prefs.notNowThisSession, false);

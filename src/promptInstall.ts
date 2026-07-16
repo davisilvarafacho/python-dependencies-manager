@@ -5,6 +5,8 @@ export type MaybePromptInstallOptions = {
 	root: string | undefined;
 	preferences: PromptPreferences;
 	requirementsExists: boolean;
+	/** When true, skip the auto-prompt — environment already set up. */
+	venvExists: boolean;
 	onInstall: () => Promise<void>;
 	showInformationMessage?: typeof vscode.window.showInformationMessage;
 };
@@ -12,9 +14,10 @@ export type MaybePromptInstallOptions = {
 export async function maybePromptInstallFromRequirements(
 	options: MaybePromptInstallOptions,
 ): Promise<void> {
-	const { root, preferences, requirementsExists, onInstall } = options;
+	const { root, preferences, requirementsExists, venvExists, onInstall } = options;
 
-	if (!root || !requirementsExists || !preferences.shouldAutoPrompt()) {
+	// Only prompt on "fresh" projects: requirements present, but no .venv yet.
+	if (!root || !requirementsExists || venvExists || !preferences.shouldAutoPrompt()) {
 		return;
 	}
 

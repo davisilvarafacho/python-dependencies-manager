@@ -333,6 +333,10 @@ export function activate(context: vscode.ExtensionContext) {
 			const r = getWorkspaceRootFsPath();
 			return r ? requirementsExists(r) : false;
 		})(),
+		venvExists: (() => {
+			const r = getWorkspaceRootFsPath();
+			return r ? venvExists(r) : false;
+		})(),
 		onInstall: installFromRequirements,
 	});
 
