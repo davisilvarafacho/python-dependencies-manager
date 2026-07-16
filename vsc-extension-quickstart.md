@@ -3,7 +3,7 @@
 ## What's in the folder
 
 * `package.json` — extension manifest (commands, Activity Bar view, activation)
-* `src/extension.ts` — entry point (stubs until MVP implementation)
+* `src/extension.ts` — entry point (MVP wiring: prompt, commands, TreeView)
 * `media/icon.svg` — Activity Bar icon
 * `docs/superpowers/specs/` — product design
 * `README.md` — user-facing overview

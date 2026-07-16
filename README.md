@@ -2,6 +2,8 @@
 
 Extensão para o VS Code que gerencia as dependências Python da **`.venv` do projeto** com **pip**, no espírito do gerenciador de pacotes do PyCharm.
 
+**Status:** MVP implementado (sem stubs). Smoke manual: [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
+
 ## O que faz (MVP)
 
 1. **Detecta** `requirements.txt` na raiz da pasta aberta
@@ -88,8 +90,12 @@ pnpm run package
 
 ```
 src/
-  extension.ts          # activate / deactivate
+  extension.ts          # activate / commands / auto-prompt
+  installFlow.ts        # python → venv → pip install -r
+  packagesTree.ts       # Activity Bar TreeView
+  pipService.ts / venvService.ts / preferences.ts / ...
 docs/superpowers/specs/ # design do produto
+docs/superpowers/plans/ # plano + checklist manual
 media/                  # ícone da Activity Bar
 ```
 
