@@ -1,6 +1,6 @@
 # Python Dependencies Manager
 
-**Idiomas:** [Português (Brasil)](README.md) · [Español](README.es.md) · [Français](README.fr.md)
+**Idiomas:** [Português (Brasil)](README.md) · [English](README.en.md) · [Español](README.es.md) · [Français](README.fr.md)
 
 Extensión para VS Code que gestiona las dependencias Python del **`.venv` del proyecto** con **pip**, al estilo del administrador de paquetes de PyCharm.
 
