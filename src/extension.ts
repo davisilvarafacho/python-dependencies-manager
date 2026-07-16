@@ -7,6 +7,7 @@ import { NoVenvError } from './packagesTree';
 import { PackagesWebviewProvider } from './packagesWebview';
 import { requirementsExists, venvExists } from './paths';
 import {
+	freezeToRequirements,
 	installPackage as pipInstallPackage,
 	installRequirements,
 	listPackages,
@@ -170,7 +171,24 @@ export function activate(context: vscode.ExtensionContext) {
 				await pipInstallPackage({ root, output, spec });
 			});
 			packagesViewRef.current?.refresh();
-			void vscode.window.showInformationMessage(`Installed ${spec}.`);
+
+			const freezeChoice = await vscode.window.showInformationMessage(
+				`Installed ${spec}. Update requirements.txt with pip freeze?`,
+				'Yes',
+				'No',
+			);
+			if (freezeChoice === 'Yes') {
+				log(output, 'cmd', 'User accepted freeze to requirements.txt');
+				await withPackageProgress('Updating requirements.txt (pip freeze)…', async () => {
+					await freezeToRequirements({ root, output });
+				});
+				void vscode.window.showInformationMessage(
+					'requirements.txt updated with pip freeze.',
+				);
+			} else {
+				log(output, 'cmd', 'User declined freeze to requirements.txt');
+				void vscode.window.showInformationMessage(`Installed ${spec}.`);
+			}
 		} catch (err) {
 			reportError(err);
 		}

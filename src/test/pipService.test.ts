@@ -7,6 +7,7 @@ import {
 	updatePackage,
 	installRequirements,
 	ensurePipAvailable,
+	freezeToRequirements,
 } from '../pipService';
 import type { ProcessRunner, RunProcessOptions, RunProcessResult } from '../runProcess';
 
@@ -172,5 +173,33 @@ suite('pipService', () => {
 		});
 		assert.ok(calls.some((a) => a.includes('ensurepip')));
 		assert.strictEqual(calls.filter((c) => c.includes('--version')).length, 2);
+	});
+
+	test('freezeToRequirements runs pip freeze and writes requirements.txt', async () => {
+		let writtenPath = '';
+		let writtenContent = '';
+		let freezeArgs: string[] | undefined;
+
+		const target = await freezeToRequirements({
+			root: '/proj',
+			output,
+			run: withPipReady(async (o) => {
+				freezeArgs = o.args;
+				return {
+					code: 0,
+					stdout: 'requests==2.32.0\nsix==1.16.0',
+					stderr: '',
+				};
+			}),
+			writeFile: async (filePath, content) => {
+				writtenPath = filePath;
+				writtenContent = content;
+			},
+		});
+
+		assert.deepStrictEqual(freezeArgs, ['-m', 'pip', 'freeze']);
+		assert.ok(writtenPath.endsWith('requirements.txt'));
+		assert.strictEqual(writtenContent, 'requests==2.32.0\nsix==1.16.0\n');
+		assert.strictEqual(target, writtenPath);
 	});
 });

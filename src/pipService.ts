@@ -1,6 +1,7 @@
+import * as fs from 'fs/promises';
 import type * as vscode from 'vscode';
 import { log } from './log';
-import { venvPythonPath } from './paths';
+import { requirementsTxtPath, venvPythonPath } from './paths';
 import {
 	runProcess,
 	type ProcessRunner,
@@ -171,4 +172,27 @@ export async function installRequirements(options: PipBaseOptions): Promise<void
 	const { output, root } = options;
 	log(output, 'pip', `Installing from ${root}/requirements.txt`);
 	await runPip(options, ['install', '-r', 'requirements.txt'], 'install requirements');
+}
+
+/**
+ * Run `pip freeze` and write the result to workspace-root requirements.txt.
+ */
+export async function freezeToRequirements(
+	options: PipBaseOptions & {
+		writeFile?: (filePath: string, content: string) => Promise<void>;
+	},
+): Promise<string> {
+	const { root, output } = options;
+	const writeFile = options.writeFile ?? ((p, c) => fs.writeFile(p, c, 'utf8'));
+	const target = requirementsTxtPath(root);
+
+	log(output, 'pip', `Running pip freeze → ${target}`);
+	const result = await runPip(options, ['freeze'], 'freeze');
+	const body = result.stdout.replace(/\r\n/g, '\n');
+	const content = body.endsWith('\n') || body.length === 0 ? body : `${body}\n`;
+
+	await writeFile(target, content);
+	const lineCount = content ? content.trimEnd().split('\n').length : 0;
+	log(output, 'pip', `Wrote ${lineCount} line(s) to ${target}`);
+	return target;
 }

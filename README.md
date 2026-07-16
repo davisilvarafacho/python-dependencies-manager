@@ -49,6 +49,7 @@ Na Activity Bar, abra **Python Dependencies** para:
 - Resultados com **última versão à direita**
 - Resumo do pacote abaixo
 - Enter instala o selecionado (ou o texto digitado, se for free-form)
+- Depois da instalação, pergunta se deve **atualizar o `requirements.txt` com `pip freeze`**
 
 ### Command Palette
 
