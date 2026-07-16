@@ -1,79 +1,85 @@
 # Python Dependencies Manager
 
+**Idiomas:** [Português (Brasil)](README.md) · [Español](README.es.md) · [Français](README.fr.md)
+
 Extensão para o VS Code que gerencia as dependências Python da **`.venv` do projeto** com **pip**, no espírito do gerenciador de pacotes do PyCharm.
 
-**Status:** MVP implementado (sem stubs). Smoke manual: [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
+**Status:** MVP implementado. Checklist manual: [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
 
-## O que faz (MVP)
+## O que faz
 
 1. **Detecta** `requirements.txt` na raiz da pasta aberta
-2. **Notifica** e sugere instalar as dependências
-3. Se não existir **`.venv`**, **cria** com o interpretador selecionado na [extensão Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
-4. Roda **`pip install -r requirements.txt`** com barra de progresso e log no **Output Channel**
-5. Mostra os pacotes instalados numa **view na Activity Bar**
-6. Permite **instalar / desinstalar / atualizar** pacotes avulsos
+2. **Notifica** e sugere instalar as dependências **somente se ainda não existir `.venv`**
+3. Se não existir **`.venv`**, **cria** com o interpretador da [extensão Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+4. Garante **pip** no ambiente (`ensurepip` se faltar) e roda **`pip install -r requirements.txt`**
+5. Mostra os pacotes na **Activity Bar** (webview com busca)
+6. **Instalar / desinstalar / atualizar** pacotes avulsos
+7. Após instalar um pacote, pergunta se deve **atualizar o `requirements.txt` com `pip freeze`**
+8. Logs detalhados no canal **Python Dependencies Manager**
 
 ## Pré-requisitos
 
-- [Visual Studio Code](https://code.visualstudio.com/) (ou fork compatível com a API de extensões)
-- Extensão **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** instalada **na janela Extension Development Host** (quando testar com F5)
-- Um **interpretador Python** selecionado no workspace (`Python: Select Interpreter`)
-- Módulo **venv** do Python disponível (Debian/Ubuntu: `sudo apt install python3-venv` ou `python3.12-venv`)
-- Projeto aberto como **uma pasta** (raiz com `requirements.txt` e, se existir, `.venv`)
+- [Visual Studio Code](https://code.visualstudio.com/) (ou fork compatível)
+- Extensão **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** instalada
+- Interpretador Python selecionado (`Python: Select Interpreter`)
+- Módulo **venv** disponível (Debian/Ubuntu: `sudo apt install python3-venv` ou `python3.12-venv`)
+- Projeto aberto como **uma pasta** (raiz com `requirements.txt` / `.venv`)
 
 ## Como usar
 
-### Fluxo automático
+### Fluxo automático (projeto novo)
 
-1. Abra a pasta do projeto (com `requirements.txt` na raiz)
-2. Se a extensão detectar o arquivo, aparece a notificação para instalar
+1. Abra a pasta do projeto com `requirements.txt` na raiz **e sem `.venv`**
+2. Aparece a notificação para instalar
 3. Escolha:
    - **Install** — cria `.venv` se faltar e instala as dependências
    - **Not now** — não pergunta de novo nesta sessão
    - **Don’t ask again** — não pergunta de novo neste workspace
 
+Se **já existir `.venv`**, a notificação **não** é exibida. O comando manual continua disponível.
+
 ### View de pacotes
 
-Na Activity Bar, abra **Python Dependencies** para:
+Na Activity Bar → **Python Dependencies**:
 
-- **Campo de pesquisa fixo** no topo:
-  - **vazio** → lista pacotes **instalados** na `.venv`
-  - **com texto** → busca real no **PyPI** por nome (ex.: `django-` retorna ≥50 pacotes cujo nome contém o termo), com versão e botão **Install**
-- **Update** / **Remove** nos instalados
-- Botões da view: Refresh, Install Package, Install from requirements.txt
+| Situação | Comportamento |
+|----------|----------------|
+| Campo de busca **vazio** | Lista pacotes **instalados** na `.venv` |
+| Campo com texto (ex.: `django-`) | Busca real no **PyPI** por nome (≥50 resultados com o termo no nome), versão e botão **Install** |
 
-### Instalar pacote (autocomplete PyPI)
+Nos instalados: botões **Update** e **Remove**.  
+Na toolbar da view: **Refresh**, **Install Package**, **Install from requirements.txt**.
 
-**Install Package** abre um QuickPick:
+### Instalar pacote (QuickPick / PyPI)
 
-- Digite para buscar no **PyPI** (debounce)
-- Resultados com **última versão à direita**
-- Resumo do pacote abaixo
-- Enter instala o selecionado (ou o texto digitado, se for free-form)
-- Depois da instalação, pergunta se deve **atualizar o `requirements.txt` com `pip freeze`**
+- Busca com debounce no PyPI
+- **Última versão à direita**
+- Resumo do pacote
+- Texto livre (spec `name==1.0`, git, etc.)
+- Depois da instalação: opção de **`pip freeze` → `requirements.txt`**
 
 ### Command Palette
 
-Comandos sob a categoria **Python Dependencies**:
+Categoria **Python Dependencies**:
 
 | Comando | Descrição |
 |---------|-----------|
-| `Install from requirements.txt` | Mesmo fluxo da notificação (sempre disponível) |
+| `Install from requirements.txt` | Fluxo completo (sempre disponível) |
 | `Refresh Packages` | Recarrega a lista da `.venv` |
-| `Install Package` | Pede o nome/spec e roda `pip install` |
+| `Install Package` | Busca PyPI + `pip install` |
 
-## Feedback durante operações
+## Feedback e logs
 
-- **Progress notification** enquanto venv/pip rodam
-- Canal de saída **Python Dependencies Manager** com o log completo (stdout/stderr)
+- Notificações de **progresso** durante venv/pip
+- **View → Output → Python Dependencies Manager** (logs com timestamp e escopo: `flow`, `venv`, `pip`, `process`, etc.)
 
 ## Escopo atual (e o que fica de fora)
 
-**Dentro do MVP:** pasta única, só `requirements.txt` + pip + `.venv` na raiz.
+**Dentro do MVP:** pasta única, `requirements.txt` + pip + `.venv` na raiz, busca PyPI, freeze opcional.
 
-**Fora do MVP (por enquanto):** monorepo, Poetry/uv/conda, sync bidirecional com o manifesto, “update all”, Webview rica.
+**Fora do MVP (por enquanto):** monorepo, Poetry/uv/conda, sync fino linha a linha no manifesto, “update all”.
 
-Detalhes de design: [`docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md`](docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md).
+Design: [`docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md`](docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md).
 
 ## Desenvolvimento
 
@@ -83,54 +89,57 @@ pnpm run compile
 # ou: pnpm run watch
 ```
 
-No VS Code: **F5** (Run Extension) abre uma janela Extension Development Host.
+No VS Code: **F5** (Run Extension).
 
-Pasta de teste pronta: `fixtures/sample-project/` (tem `requirements.txt`).
+Pasta de teste: `fixtures/sample-project/` (com `requirements.txt`).
 
 ```bash
 pnpm run lint
 pnpm test
 ```
 
-### Como testar com F5 (passo a passo)
+### Testar com F5
 
-1. Abra **este repositório** no VS Code
-2. `pnpm install` e `pnpm run compile`
-3. **F5** → abre a janela **Extension Development Host**
-4. Nessa janela: **File → Open Folder** → escolha `fixtures/sample-project` (não a raiz do repo da extensão)
-5. Instale a extensão **Python** se pedir; rode **Python: Select Interpreter**
-6. Deve aparecer a notificação do `requirements.txt` (ou rode **Python Dependencies: Install from requirements.txt**)
-7. Activity Bar → ícone **Python Dependencies** → lista de pacotes
-8. Log: **View → Output → Python Dependencies Manager**
+1. Abra **este repositório** no VS Code  
+2. `pnpm install` && `pnpm run compile`  
+3. **F5** → janela **Extension Development Host**  
+4. **File → Open Folder** → `fixtures/sample-project` (não a raiz da extensão)  
+5. Extensão **Python** + **Select Interpreter**  
+6. Notificação (se não houver `.venv`) ou comando **Install from requirements.txt**  
+7. Activity Bar → **Python Dependencies**  
+8. Output → **Python Dependencies Manager**
 
-### Se “não funciona”
+### Solução de problemas
 
 | Sintoma | Causa comum | O que fazer |
 |---------|-------------|-------------|
-| F5 trava em “preLaunchTask” | task `watch` nunca termina | Já corrigido: F5 usa `npm: compile` |
-| View vazia / extensão “morta” | não ativou | Abrir pasta com `requirements.txt`, clicar na view, ou rodar um comando da extensão |
+| F5 trava no preLaunchTask | task `watch` | F5 usa `npm: compile` |
+| View vazia | extensão não ativou | Abrir pasta com `requirements.txt`/`.venv` ou rodar um comando |
 | Erro de venv / ensurepip | falta `python3-venv` | `sudo apt install python3.12-venv` |
-| Pedido de interpretador | Python extension / interpreter | Instalar **Python** e **Select Interpreter** na janela Host |
-| Avisos ConfigCat no log | VS Code / GitHub / Graphite | **Não** são desta extensão — ignore |
+| Sem interpretador | Python extension | Instalar **Python** e selecionar interpretador |
+| Avisos ConfigCat no log | VS Code / GitHub | Ignorar — não são desta extensão |
 
 Empacotar:
 
 ```bash
 pnpm run package
-# em seguida, se tiver vsce: npx @vscode/vsce package
+# npx @vscode/vsce package
 ```
 
 ## Estrutura (alta nível)
 
 ```
 src/
-  extension.ts          # activate / commands / auto-prompt
-  installFlow.ts        # python → venv → pip install -r
-  packagesTree.ts       # Activity Bar TreeView
+  extension.ts              # activate, commands, auto-prompt
+  installFlow.ts            # python → venv → pip install -r
+  packagesWebview.ts        # view + busca PyPI / lista instalados
+  packageInstallQuickPick.ts
+  pypiClient.ts             # índice simple + JSON do PyPI
   pipService.ts / venvService.ts / preferences.ts / ...
-docs/superpowers/specs/ # design do produto
-docs/superpowers/plans/ # plano + checklist manual
-media/                  # ícone da Activity Bar
+docs/superpowers/specs/     # design
+docs/superpowers/plans/     # plano + checklist
+media/                      # ícone da Activity Bar
+fixtures/sample-project/    # projeto de teste
 ```
 
 ## Changelog
@@ -139,4 +148,4 @@ Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Licença
 
-MIT (ver campo `license` no `package.json`).
+MIT (campo `license` no `package.json`).
