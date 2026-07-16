@@ -1,10 +1,8 @@
 import type * as vscode from 'vscode';
 import { venvDirPath } from './paths';
-import { runProcess, type RunProcessOptions, type RunProcessResult } from './runProcess';
+import { runProcess, type ProcessRunner } from './runProcess';
 
-export type ProcessRunner = (
-	options: RunProcessOptions,
-) => Promise<RunProcessResult>;
+export type { ProcessRunner };
 
 export async function ensureVenv(options: {
 	root: string;

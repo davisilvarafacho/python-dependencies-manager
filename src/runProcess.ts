@@ -14,6 +14,11 @@ export type RunProcessOptions = {
 	output: vscode.OutputChannel;
 };
 
+/** Injectable process runner for tests and alternate backends. */
+export type ProcessRunner = (
+	options: RunProcessOptions,
+) => Promise<RunProcessResult>;
+
 export function runProcess(options: RunProcessOptions): Promise<RunProcessResult> {
 	const { command, args, cwd, output } = options;
 	output.appendLine(`$ ${command} ${args.join(' ')}`);

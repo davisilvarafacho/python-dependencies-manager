@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import type { PackageInfo } from './pipService';
 
+/** Thrown by the list callback when workspace has no .venv. */
+export class NoVenvError extends Error {
+	constructor(message = 'No .venv found') {
+		super(message);
+		this.name = 'NoVenvError';
+	}
+}
+
 export class PackageItem extends vscode.TreeItem {
 	constructor(public readonly pkg: PackageInfo) {
 		super(pkg.name, vscode.TreeItemCollapsibleState.None);
@@ -38,10 +46,21 @@ export class PackagesTreeProvider
 		try {
 			const packages = await this.list();
 			if (packages.length === 0) {
-				return [this.guidanceItem('No packages in .venv — install dependencies to get started')];
+				return [
+					this.guidanceItem(
+						'No packages in .venv — install dependencies to get started',
+					),
+				];
 			}
 			return packages.map((pkg) => new PackageItem(pkg));
-		} catch {
+		} catch (err) {
+			if (err instanceof NoVenvError) {
+				return [
+					this.guidanceItem(
+						'No .venv found — run Install from requirements.txt',
+					),
+				];
+			}
 			return [
 				this.guidanceItem(
 					'Unable to list packages — ensure .venv exists or install from requirements.txt',

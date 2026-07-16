@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { runInstallFromRequirements } from './installFlow';
 import { createOutputChannel } from './output';
-import { PackageItem, PackagesTreeProvider } from './packagesTree';
+import { NoVenvError, PackageItem, PackagesTreeProvider } from './packagesTree';
 import { requirementsExists, venvExists } from './paths';
 import {
 	installPackage as pipInstallPackage,
@@ -16,6 +16,8 @@ import { getSelectedPythonPath } from './pythonInterpreter';
 import { ensureVenv } from './venvService';
 import { getWorkspaceRootFsPath } from './workspaceRoot';
 
+const INSTALL_FROM_REQUIREMENTS_ACTION = 'Install from requirements.txt';
+
 /**
  * Entry point. MVP behavior is defined in:
  * docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md
@@ -29,7 +31,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const tree = new PackagesTreeProvider(async () => {
 		const root = getWorkspaceRootFsPath();
 		if (!root || !venvExists(root)) {
-			return [];
+			throw new NoVenvError();
 		}
 		return listPackages({ root, output });
 	});
@@ -77,6 +79,34 @@ export function activate(context: vscode.ExtensionContext) {
 		tree.refresh();
 	};
 
+	/** When .venv is missing, offer recovery via Install from requirements.txt. */
+	const offerNoVenvRecovery = async (): Promise<void> => {
+		const choice = await vscode.window.showErrorMessage(
+			'No .venv found. Install from requirements.txt first.',
+			INSTALL_FROM_REQUIREMENTS_ACTION,
+		);
+		if (choice === INSTALL_FROM_REQUIREMENTS_ACTION) {
+			await installFromRequirements();
+		}
+	};
+
+	const withPackageProgress = async (
+		message: string,
+		task: () => Promise<void>,
+	): Promise<void> => {
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Python Dependencies',
+				cancellable: false,
+			},
+			async (progress) => {
+				progress.report({ message });
+				await task();
+			},
+		);
+	};
+
 	const refreshPackages = async () => {
 		tree.refresh();
 	};
@@ -87,9 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		if (!venvExists(root)) {
-			void vscode.window.showErrorMessage(
-				'No .venv found. Install from requirements.txt first.',
-			);
+			await offerNoVenvRecovery();
 			return;
 		}
 
@@ -102,8 +130,11 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		try {
-			await pipInstallPackage({ root, output, spec: spec.trim() });
+			await withPackageProgress(`Installing ${spec.trim()}…`, async () => {
+				await pipInstallPackage({ root, output, spec: spec.trim() });
+			});
 			tree.refresh();
+			void vscode.window.showInformationMessage(`Installed ${spec.trim()}.`);
 		} catch (err) {
 			reportError(err);
 		}
@@ -119,15 +150,26 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		if (!venvExists(root)) {
-			void vscode.window.showErrorMessage(
-				'No .venv found. Install from requirements.txt first.',
-			);
+			await offerNoVenvRecovery();
+			return;
+		}
+
+		const name = item.pkg.name;
+		const confirm = await vscode.window.showWarningMessage(
+			`Uninstall ${name}?`,
+			{ modal: true },
+			'Confirm',
+		);
+		if (confirm !== 'Confirm') {
 			return;
 		}
 
 		try {
-			await pipUninstallPackage({ root, output, name: item.pkg.name });
+			await withPackageProgress(`Uninstalling ${name}…`, async () => {
+				await pipUninstallPackage({ root, output, name });
+			});
 			tree.refresh();
+			void vscode.window.showInformationMessage(`Uninstalled ${name}.`);
 		} catch (err) {
 			reportError(err);
 		}
@@ -143,15 +185,17 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		if (!venvExists(root)) {
-			void vscode.window.showErrorMessage(
-				'No .venv found. Install from requirements.txt first.',
-			);
+			await offerNoVenvRecovery();
 			return;
 		}
 
+		const name = item.pkg.name;
 		try {
-			await pipUpdatePackage({ root, output, name: item.pkg.name });
+			await withPackageProgress(`Updating ${name}…`, async () => {
+				await pipUpdatePackage({ root, output, name });
+			});
 			tree.refresh();
+			void vscode.window.showInformationMessage(`Updated ${name}.`);
 		} catch (err) {
 			reportError(err);
 		}

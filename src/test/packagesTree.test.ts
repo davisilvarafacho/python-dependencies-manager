@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { PackageItem, PackagesTreeProvider } from '../packagesTree';
+import { NoVenvError, PackageItem, PackagesTreeProvider } from '../packagesTree';
 import type { PackageInfo } from '../pipService';
 
 suite('packagesTree', () => {
@@ -27,25 +27,47 @@ suite('packagesTree', () => {
 		assert.strictEqual(b.contextValue, 'package');
 	});
 
-	test('getChildren returns guidance TreeItem when list is empty', async () => {
+	test('getChildren returns empty-list guidance when list is empty', async () => {
 		const provider = new PackagesTreeProvider(async () => []);
 		const children = await provider.getChildren();
 
 		assert.strictEqual(children.length, 1);
 		assert.ok(!(children[0] instanceof PackageItem));
 		assert.notStrictEqual(children[0].contextValue, 'package');
-		assert.ok(typeof children[0].label === 'string' && children[0].label.length > 0);
+		assert.strictEqual(
+			children[0].label,
+			'No packages in .venv — install dependencies to get started',
+		);
 	});
 
-	test('getChildren returns guidance TreeItem when list fails', async () => {
+	test('getChildren returns no-venv guidance when NoVenvError is thrown', async () => {
 		const provider = new PackagesTreeProvider(async () => {
-			throw new Error('no venv');
+			throw new NoVenvError();
 		});
 		const children = await provider.getChildren();
 
 		assert.strictEqual(children.length, 1);
 		assert.ok(!(children[0] instanceof PackageItem));
 		assert.notStrictEqual(children[0].contextValue, 'package');
+		assert.strictEqual(
+			children[0].label,
+			'No .venv found — run Install from requirements.txt',
+		);
+	});
+
+	test('getChildren returns generic guidance when list fails with other error', async () => {
+		const provider = new PackagesTreeProvider(async () => {
+			throw new Error('pip failed');
+		});
+		const children = await provider.getChildren();
+
+		assert.strictEqual(children.length, 1);
+		assert.ok(!(children[0] instanceof PackageItem));
+		assert.notStrictEqual(children[0].contextValue, 'package');
+		assert.ok(
+			typeof children[0].label === 'string' &&
+				(children[0].label as string).includes('Unable to list packages'),
+		);
 	});
 
 	test('refresh fires onDidChangeTreeData', async () => {

@@ -1,12 +1,14 @@
 import type * as vscode from 'vscode';
 import { venvPythonPath } from './paths';
-import { runProcess, type RunProcessOptions, type RunProcessResult } from './runProcess';
+import {
+	runProcess,
+	type ProcessRunner,
+	type RunProcessResult,
+} from './runProcess';
 
 export type PackageInfo = { name: string; version: string };
 
-export type ProcessRunner = (
-	options: RunProcessOptions,
-) => Promise<RunProcessResult>;
+export type { ProcessRunner };
 
 type PipBaseOptions = {
 	root: string;
