@@ -2,37 +2,55 @@
 
 **Idiomas:** [Português (Brasil)](README.md) · [English](README.en.md) · [Español](README.es.md) · [Français](README.fr.md)
 
-Extensão para o VS Code que gerencia as dependências Python da **`.venv` do projeto** com **pip**, no espírito do gerenciador de pacotes do PyCharm.
+Extensão para o VS Code que gerencia as dependências Python da **`.venv` do projeto**, no espírito do gerenciador de pacotes do PyCharm. Usa **dois backends com detecção automática**:
 
-**Status:** **v1.0.0** — release estável. Checklist manual: [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
+- **uv** (nativo) — se `uv` estiver no `PATH` **e** existir `pyproject.toml` na raiz
+- **pip** — caso contrário (`requirements.txt` + `python -m venv` / `pip`)
+
+**Status:** **v1.0.0** — release estável (+ backend uv em desenvolvimento). Checklist manual: [docs/superpowers/plans/manual-checklist.md](docs/superpowers/plans/manual-checklist.md).
 
 ## O que faz
 
-1. **Detecta** `requirements.txt` na raiz da pasta aberta
-2. **Notifica** e sugere instalar as dependências **somente se ainda não existir `.venv`**
-3. Se não existir **`.venv`**, **cria** com o interpretador da [extensão Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
-4. Garante **pip** no ambiente (`ensurepip` se faltar) e roda **`pip install -r requirements.txt`**
-5. Mostra os pacotes na **Activity Bar** (webview com busca)
-6. **Instalar / desinstalar / atualizar** pacotes avulsos
-7. Após instalar um pacote, pergunta se deve **atualizar o `requirements.txt` com `pip freeze`**
-8. Logs detalhados no canal **Python Dependencies Manager**
+1. **Detecta o backend** automaticamente: `uv` no PATH + `pyproject.toml` → uv nativo; senão → pip  
+2. **Detecta** `requirements.txt` ou `pyproject.toml` na raiz da pasta aberta  
+3. **Notifica** e sugere instalar/sincronizar dependências **somente se ainda não existir `.venv`**  
+4. Se não existir **`.venv`**, **cria** (pip: interpretador da [extensão Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python); uv: `uv venv`)  
+5. Sincroniza o manifesto: **`pip install -r requirements.txt`** ou **`uv sync`**  
+6. Mostra os pacotes na **Activity Bar** (webview com busca)  
+7. **Instalar / desinstalar / atualizar** pacotes avulsos (`pip install` / `uv add`, etc.)  
+8. Após instalar com **pip**, pergunta se deve **atualizar o `requirements.txt` com `pip freeze`** (com **uv**, `uv add` já edita o `pyproject.toml` — sem diálogo de freeze)  
+9. Logs detalhados no canal **Python Dependencies Manager**
+
+### Backend uv (detalhes)
+
+Quando o modo uv está ativo, a extensão usa a CLI **nativa** do uv:
+
+| Operação | Comando |
+|----------|---------|
+| Criar ambiente | `uv venv` |
+| Sincronizar dependências | `uv sync` |
+| Adicionar pacote | `uv add` |
+| Remover pacote | `uv remove` |
+| Atualizar pacote | `uv lock --upgrade-package` + `uv sync` |
+| Listar pacotes | `uv pip list --format=json` (**única** exceção: listagem usa `uv pip`) |
 
 ## Pré-requisitos
 
 - [Visual Studio Code](https://code.visualstudio.com/) (ou fork compatível)
 - Extensão **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** instalada
 - Interpretador Python selecionado (`Python: Select Interpreter`)
-- Módulo **venv** disponível (Debian/Ubuntu: `sudo apt install python3-venv` ou `python3.12-venv`)
-- Projeto aberto como **uma pasta** (raiz com `requirements.txt` / `.venv`)
+- Módulo **venv** disponível para o fluxo pip (Debian/Ubuntu: `sudo apt install python3-venv` ou `python3.12-venv`)
+- Projeto aberto como **uma pasta** (raiz com `requirements.txt` / `pyproject.toml` / `.venv`)
+- **Opcional — uv:** [uv](https://github.com/astral-sh/uv) no `PATH` para projetos com `pyproject.toml` (sem uv, o backend pip é usado)
 
 ## Como usar
 
 ### Fluxo automático (projeto novo)
 
-1. Abra a pasta do projeto com `requirements.txt` na raiz **e sem `.venv`**
-2. Aparece a notificação para instalar
+1. Abra a pasta do projeto com `requirements.txt` ou `pyproject.toml` na raiz **e sem `.venv`**
+2. Aparece a notificação para instalar/sincronizar
 3. Escolha:
-   - **Install** — cria `.venv` se faltar e instala as dependências
+   - **Install** / **Sync** — cria `.venv` se faltar e instala as dependências
    - **Not now** — não pergunta de novo nesta sessão
    - **Don’t ask again** — não pergunta de novo neste workspace
 
@@ -44,7 +62,7 @@ Na Activity Bar → **Python Dependencies**:
 
 - **Filtro fixo** no topo: filtra **apenas** os pacotes **já instalados** na `.venv`
 - Botões **Update** / **Remove** em cada linha
-- Toolbar: **Refresh**, **Install Package** (+), **Install from requirements.txt**
+- Toolbar: **Refresh**, **Install Package** (+), e o comando de sync do backend ativo
 
 ### Instalar pacotes (botão + / QuickPick PyPI)
 
@@ -54,30 +72,32 @@ Aberto pelo **+ Install Package** (toolbar ou Command Palette) — **separado** 
 - **Última versão à direita**, resumo abaixo
 - **Seleção múltipla** (marque vários) → Enter instala todos de uma vez
 - Texto livre (`name==1.0`, git, etc.)
-- Depois: opção de **`pip freeze` → `requirements.txt`**
+- Depois (somente pip): opção de **`pip freeze` → `requirements.txt`**
 
 ### Command Palette
 
 Categoria **Python Dependencies**:
 
-| Comando | Descrição |
-|---------|-----------|
-| `Install from requirements.txt` | Fluxo completo (sempre disponível) |
-| `Refresh Packages` | Recarrega a lista da `.venv` |
-| `Install Package` | Busca PyPI multi-select + `pip install` |
+| Comando | Descrição | Quando aparece |
+|---------|-----------|----------------|
+| `Install from requirements.txt` | Fluxo pip completo (`pip install -r`) | Projetos **sem** modo uv |
+| `Sync dependencies` | Fluxo uv (`uv venv` + `uv sync`) | `uv` no PATH + `pyproject.toml` |
+| `Refresh Packages` | Recarrega a lista da `.venv` | Sempre |
+| `Install Package` | Busca PyPI multi-select + install/add | Sempre |
 
 ## Feedback e logs
 
-- Notificações de **progresso** durante venv/pip
-- **View → Output → Python Dependencies Manager** (logs com timestamp e escopo: `flow`, `venv`, `pip`, `process`, etc.)
+- Notificações de **progresso** durante venv/pip/uv
+- **View → Output → Python Dependencies Manager** (logs com timestamp e escopo: `flow`, `venv`, `pip`, `uv`, `process`, etc.)
 
 ## Escopo atual (e o que fica de fora)
 
-**Dentro do MVP:** pasta única, `requirements.txt` + pip + `.venv` na raiz, busca PyPI, freeze opcional.
+**Dentro do escopo:** pasta única; backends **pip** (`requirements.txt`) e **uv nativo** (`pyproject.toml` + uv no PATH); busca PyPI; freeze opcional no pip.
 
-**Fora do MVP (por enquanto):** monorepo, Poetry/uv/conda, sync fino linha a linha no manifesto, “update all”.
+**Fora (por enquanto):** monorepo, Poetry/conda, sync fino linha a linha no manifesto, “update all”, forçar backend por setting, workspaces uv com extras/dev groups na UI.
 
-Design: [`docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md`](docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md).
+Design MVP: [`docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md`](docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md).  
+Design uv: [`docs/superpowers/specs/2026-07-17-uv-native-package-manager-design.md`](docs/superpowers/specs/2026-07-17-uv-native-package-manager-design.md).
 
 ## Desenvolvimento
 
@@ -103,7 +123,7 @@ pnpm test
 3. **F5** → janela **Extension Development Host**  
 4. **File → Open Folder** → `fixtures/sample-project` (não a raiz da extensão)  
 5. Extensão **Python** + **Select Interpreter**  
-6. Notificação (se não houver `.venv`) ou comando **Install from requirements.txt**  
+6. Notificação (se não houver `.venv`) ou comando **Install from requirements.txt** / **Sync dependencies**  
 7. Activity Bar → **Python Dependencies**  
 8. Output → **Python Dependencies Manager**
 
@@ -112,9 +132,10 @@ pnpm test
 | Sintoma | Causa comum | O que fazer |
 |---------|-------------|-------------|
 | F5 trava no preLaunchTask | task `watch` | F5 usa `npm: compile` |
-| View vazia | extensão não ativou | Abrir pasta com `requirements.txt`/`.venv` ou rodar um comando |
+| View vazia | extensão não ativou | Abrir pasta com `requirements.txt`/`pyproject.toml`/`.venv` ou rodar um comando |
 | Erro de venv / ensurepip | falta `python3-venv` | `sudo apt install python3.12-venv` |
 | Sem interpretador | Python extension | Instalar **Python** e selecionar interpretador |
+| Projeto pyproject mas usa pip | `uv` não está no PATH | Instalar uv ou aceitar o backend pip |
 | Avisos ConfigCat no log | VS Code / GitHub | Ignorar — não são desta extensão |
 
 Empacotar:
@@ -129,7 +150,8 @@ pnpm run package
 ```
 src/
   extension.ts              # activate, commands, auto-prompt
-  installFlow.ts            # python → venv → pip install -r
+  packageOps.ts             # Template Method (progress, erros, refresh)
+  packageManager/           # Strategy: detect, resolve, PipManager, UvManager
   packagesWebview.ts        # view + busca PyPI / lista instalados
   packageInstallQuickPick.ts
   pypiClient.ts             # índice simple + JSON do PyPI

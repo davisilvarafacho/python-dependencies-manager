@@ -6,13 +6,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Planned (post-1.0)
+### Added
+
+- Native **uv** backend when `uv` is on PATH and `pyproject.toml` exists (`sync` / `add` / `remove` / `venv`)
+- Command **Sync dependencies** (shown in uv mode; pip projects keep **Install from requirements.txt**)
+- Dual backend auto-detect: `uv` on PATH + root `pyproject.toml` → UvManager; otherwise PipManager
+- Package list under uv uses `uv pip list --format=json` only for listing (native uv for all other ops)
+
+### Planned (post-1.1)
 
 - Monorepo / multi-root workspaces
-- Poetry / uv / conda backends
+- Poetry / conda backends
 - Fine-grained bidirectional requirements sync (beyond full `pip freeze`)
 - Update-all packages
 - Optional richer UI polish
+- Setting to force uv/pip backend
 
 ## [1.0.0] - 2026-07-16
 
