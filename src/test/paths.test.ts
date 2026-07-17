@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { requirementsTxtPath, venvDirPath, venvPythonPath } from '../paths';
+import { requirementsTxtPath, venvDirPath, venvPythonPath, pyprojectTomlPath } from '../paths';
 
 suite('paths', () => {
 	const root = path.join('/tmp', 'proj');
@@ -23,5 +23,9 @@ suite('paths', () => {
 		} else {
 			assert.strictEqual(py, path.join(root, '.venv', 'bin', 'python'));
 		}
+	});
+
+	test('pyprojectTomlPath joins root', () => {
+		assert.strictEqual(pyprojectTomlPath(root), path.join(root, 'pyproject.toml'));
 	});
 });

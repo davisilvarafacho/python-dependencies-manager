@@ -24,6 +24,18 @@ export function requirementsExists(root: string): boolean {
 	}
 }
 
+export function pyprojectTomlPath(root: string): string {
+	return path.join(root, 'pyproject.toml');
+}
+
+export function pyprojectExists(root: string): boolean {
+	try {
+		return fs.statSync(pyprojectTomlPath(root)).isFile();
+	} catch {
+		return false;
+	}
+}
+
 export function venvExists(root: string): boolean {
 	try {
 		return fs.statSync(venvDirPath(root)).isDirectory();
