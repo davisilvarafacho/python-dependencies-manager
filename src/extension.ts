@@ -30,6 +30,11 @@ export function activate(context: vscode.ExtensionContext) {
 	const preferences = new PromptPreferences(context);
 	const rootAtActivate = getWorkspaceRootFsPath();
 	updateBackendContext(rootAtActivate);
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeWorkspaceFolders(() => {
+			updateBackendContext(getWorkspaceRootFsPath());
+		}),
+	);
 
 	logSection(output, 'Extension activate');
 	log(output, 'activate', `workspace root: ${rootAtActivate ?? '(none)'}`);
@@ -97,14 +102,16 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		log(output, 'cmd', `${manager.syncCommandTitle}: starting (manager=${manager.id})`);
-		await packageOps.syncManifest({
+		const ok = await packageOps.syncManifest({
 			root,
 			output,
 			getPythonPath: () => getSelectedPythonPath(),
 			venvExists,
 			onRefresh: () => packagesViewRef.current?.refresh(),
 		});
-		log(output, 'cmd', `${manager.syncCommandTitle}: done`);
+		if (ok) {
+			log(output, 'cmd', `${manager.syncCommandTitle}: done`);
+		}
 	};
 
 	const offerNoVenvRecovery = async (): Promise<void> => {

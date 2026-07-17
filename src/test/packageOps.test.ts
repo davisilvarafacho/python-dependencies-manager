@@ -33,7 +33,7 @@ suite('packageOps.syncManifest', () => {
 				return [];
 			},
 		};
-		await syncManifest({
+		const ok = await syncManifest({
 			root: '/p',
 			output: fakeOutput(),
 			getPythonPath: async () => {
@@ -50,7 +50,49 @@ suite('packageOps.syncManifest', () => {
 			showInformationMessage: async () => undefined,
 			showErrorMessage: async () => undefined,
 		});
+		assert.strictEqual(ok, true);
 		assert.deepStrictEqual(steps, ['py', 'env', 'sync']);
+	});
+
+	test('returns false after handling failure (does not throw)', async () => {
+		const manager: PackageManager = {
+			id: 'uv',
+			syncCommandTitle: 'Sync dependencies',
+			manifestKind: 'pyproject.toml',
+			afterAddShouldOfferManifestWrite: false,
+			async ensureEnv() {
+				return 'exists';
+			},
+			async syncManifest() {
+				throw new Error('sync boom');
+			},
+			async addPackages() {},
+			async removePackage() {},
+			async updatePackage() {},
+			async listPackages() {
+				return [];
+			},
+		};
+		const errors: string[] = [];
+		const ok = await syncManifest({
+			root: '/p',
+			output: fakeOutput(),
+			getPythonPath: async () => '/py',
+			resolveManager: () => manager,
+			venvExists: () => true,
+			withProgress: async (_o, task) =>
+				task(
+					{ report: () => {} } as vscode.Progress<{ message?: string; increment?: number }>,
+					{} as vscode.CancellationToken,
+				),
+			showInformationMessage: async () => undefined,
+			showErrorMessage: async (msg: string) => {
+				errors.push(String(msg));
+				return undefined;
+			},
+		});
+		assert.strictEqual(ok, false);
+		assert.ok(errors.some((m) => /sync boom/.test(m)));
 	});
 
 	test('addPackages does not call freeze when flag false', async () => {

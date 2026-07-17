@@ -71,7 +71,8 @@ function freezeOfferMessage(specs: string[]): string {
 		: `Installed ${specs.length} packages. Update requirements.txt with pip freeze?`;
 }
 
-export async function syncManifest(deps: PackageOpsDeps): Promise<void> {
+/** Returns true on success, false after UI error handling on failure. */
+export async function syncManifest(deps: PackageOpsDeps): Promise<boolean> {
 	const ui = resolveUi(deps);
 	const manager = resolveManager(deps);
 	const { output, root } = deps;
@@ -123,8 +124,10 @@ export async function syncManifest(deps: PackageOpsDeps): Promise<void> {
 				: 'Dependencies installed successfully.';
 		await ui.showInformationMessage(successMessage);
 		deps.onRefresh?.();
+		return true;
 	} catch (err) {
 		await handleFlowError(err, output, ui.showErrorMessage);
+		return false;
 	}
 }
 
