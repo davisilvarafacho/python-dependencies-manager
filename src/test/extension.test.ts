@@ -6,6 +6,7 @@ const EXTENSION_NAME = 'python-dependencies-manager';
 
 const CORE_COMMANDS = [
 	'pythonDependenciesManager.installFromRequirements',
+	'pythonDependenciesManager.syncDependencies',
 	'pythonDependenciesManager.refreshPackages',
 	'pythonDependenciesManager.installPackage',
 	'pythonDependenciesManager.uninstallPackage',

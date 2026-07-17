@@ -1,31 +1,27 @@
 import * as vscode from 'vscode';
-import { runInstallFromRequirements } from './installFlow';
 import { log, logSection } from './log';
 import { createOutputChannel } from './output';
 import { pickPackagesToInstall } from './packageInstallQuickPick';
+import { resolvePackageManager } from './packageManager/resolve';
+import type { PackageInfo } from './packageManager/types';
+import * as packageOps from './packageOps';
 import { NoVenvError } from './packagesTree';
 import { PackagesWebviewProvider } from './packagesWebview';
-import { requirementsExists, venvExists } from './paths';
-import {
-	freezeToRequirements,
-	installPackage as pipInstallPackage,
-	installRequirements,
-	listPackages,
-	uninstallPackage as pipUninstallPackage,
-	updatePackage as pipUpdatePackage,
-	type PackageInfo,
-} from './pipService';
+import { pyprojectExists, requirementsExists, venvExists } from './paths';
 import { PromptPreferences } from './preferences';
 import { maybePromptInstallFromRequirements } from './promptInstall';
 import { getSelectedPythonPath } from './pythonInterpreter';
-import { ensureVenv } from './venvService';
 import { getWorkspaceRootFsPath } from './workspaceRoot';
 
-const INSTALL_FROM_REQUIREMENTS_ACTION = 'Install from requirements.txt';
+function updateBackendContext(root: string | undefined): void {
+	const isUv = root ? resolvePackageManager(root).id === 'uv' : false;
+	void vscode.commands.executeCommand('setContext', 'pythonDependenciesManager.isUv', isUv);
+}
 
 /**
- * Entry point. MVP behavior is defined in:
- * docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md
+ * Entry point. Dual pip/uv backends via packageOps + resolvePackageManager.
+ * Specs: docs/superpowers/specs/2026-07-16-python-dependencies-manager-design.md
+ *        docs/superpowers/specs/2026-07-17-uv-native-package-manager-design.md
  */
 export function activate(context: vscode.ExtensionContext) {
 	const output = createOutputChannel();
@@ -33,24 +29,40 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const preferences = new PromptPreferences(context);
 	const rootAtActivate = getWorkspaceRootFsPath();
+	updateBackendContext(rootAtActivate);
+
 	logSection(output, 'Extension activate');
 	log(output, 'activate', `workspace root: ${rootAtActivate ?? '(none)'}`);
+	const managerAtActivate = rootAtActivate
+		? resolvePackageManager(rootAtActivate)
+		: undefined;
+	log(output, 'activate', `package manager: ${managerAtActivate?.id ?? '(none)'}`);
 	log(
 		output,
 		'activate',
 		`requirements.txt: ${rootAtActivate ? requirementsExists(rootAtActivate) : false}`,
 	);
+	log(
+		output,
+		'activate',
+		`pyproject.toml: ${rootAtActivate ? pyprojectExists(rootAtActivate) : false}`,
+	);
 	log(output, 'activate', `.venv: ${rootAtActivate ? venvExists(rootAtActivate) : false}`);
+
+	const packagesViewRef: { current?: PackagesWebviewProvider } = {};
 
 	const loadPackages = async (): Promise<PackageInfo[]> => {
 		const root = getWorkspaceRootFsPath();
 		if (!root || !venvExists(root)) {
+			const syncTitle = root
+				? resolvePackageManager(root).syncCommandTitle
+				: 'Install from requirements.txt';
 			log(output, 'tree', `no venv (root=${root ?? 'none'})`);
-			throw new NoVenvError('No .venv found — run Install from requirements.txt');
+			throw new NoVenvError(`No .venv found — run ${syncTitle}`);
 		}
 		log(output, 'tree', `listing packages in ${root}`);
 		try {
-			const pkgs = await listPackages({ root, output });
+			const pkgs = await packageOps.listInstalled({ root, output });
 			log(output, 'tree', `listed ${pkgs.length} package(s)`);
 			return pkgs;
 		} catch (err) {
@@ -68,76 +80,44 @@ export function activate(context: vscode.ExtensionContext) {
 		return root;
 	};
 
-	const reportError = (err: unknown): void => {
-		const message = err instanceof Error ? err.message : String(err);
-		log(output, 'error', message);
-		if (err instanceof Error && err.stack) {
-			log(output, 'error', err.stack);
-		}
-		void vscode.window.showErrorMessage(message);
-		output.show(true);
-	};
-
-	const withPackageProgress = async (
-		message: string,
-		task: () => Promise<void>,
-	): Promise<void> => {
-		await vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Notification,
-				title: 'Python Dependencies',
-				cancellable: false,
-			},
-			async (progress) => {
-				progress.report({ message });
-				await task();
-			},
-		);
-	};
-
-	// Forward declaration via mutable ref so webview actions can call install flow.
-	const packagesViewRef: { current?: PackagesWebviewProvider } = {};
-
-	const installFromRequirements = async () => {
+	const syncOrInstall = async () => {
 		const root = requireRoot();
 		if (!root) {
 			return;
 		}
-		if (!requirementsExists(root)) {
-			log(output, 'cmd', 'Install from requirements: missing requirements.txt');
+		const manager = resolvePackageManager(root);
+		if (manager.id === 'pip' && !requirementsExists(root)) {
+			log(output, 'cmd', 'Sync/install: missing requirements.txt');
 			void vscode.window.showWarningMessage('No requirements.txt at workspace root.');
 			return;
 		}
-		log(output, 'cmd', 'Install from requirements: starting');
-		await runInstallFromRequirements({
+		if (manager.id === 'uv' && !pyprojectExists(root)) {
+			log(output, 'cmd', 'Sync/install: missing pyproject.toml');
+			void vscode.window.showWarningMessage('No pyproject.toml at workspace root.');
+			return;
+		}
+		log(output, 'cmd', `${manager.syncCommandTitle}: starting (manager=${manager.id})`);
+		await packageOps.syncManifest({
 			root,
 			output,
-			getPythonPath: async () => {
-				log(output, 'cmd', 'resolving interpreter via ms-python.python…');
-				const path = await getSelectedPythonPath();
-				log(output, 'cmd', `resolved interpreter: ${path}`);
-				return path;
-			},
-			ensureVenv: async ({ root: r, pythonPath }) =>
-				ensureVenv({
-					root: r,
-					pythonPath,
-					output,
-					venvAlreadyExists: venvExists(r),
-				}),
-			installRequirements: async () => installRequirements({ root, output }),
+			getPythonPath: () => getSelectedPythonPath(),
+			venvExists,
+			onRefresh: () => packagesViewRef.current?.refresh(),
 		});
-		packagesViewRef.current?.refresh();
-		log(output, 'cmd', 'Install from requirements: done (view refreshed)');
+		log(output, 'cmd', `${manager.syncCommandTitle}: done`);
 	};
 
 	const offerNoVenvRecovery = async (): Promise<void> => {
+		const root = getWorkspaceRootFsPath();
+		const syncTitle = root
+			? resolvePackageManager(root).syncCommandTitle
+			: 'Install from requirements.txt';
 		const choice = await vscode.window.showErrorMessage(
-			'No .venv found. Install from requirements.txt first.',
-			INSTALL_FROM_REQUIREMENTS_ACTION,
+			`No .venv found. ${syncTitle} first.`,
+			syncTitle,
 		);
-		if (choice === INSTALL_FROM_REQUIREMENTS_ACTION) {
-			await installFromRequirements();
+		if (choice === syncTitle) {
+			await syncOrInstall();
 		}
 	};
 
@@ -160,43 +140,14 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const label =
-			cleaned.length === 1 ? cleaned[0] : `${cleaned.length} packages`;
-
-		try {
-			logSection(output, `Install package(s): ${cleaned.join(', ')}`);
-			output.show(true);
-			await withPackageProgress(`Installing ${label}…`, async () => {
-				await pipInstallPackage({ root, output, spec: cleaned });
-			});
-			packagesViewRef.current?.refresh();
-
-			const freezeChoice = await vscode.window.showInformationMessage(
-				cleaned.length === 1
-					? `Installed ${cleaned[0]}. Update requirements.txt with pip freeze?`
-					: `Installed ${cleaned.length} packages. Update requirements.txt with pip freeze?`,
-				'Yes',
-				'No',
-			);
-			if (freezeChoice === 'Yes') {
-				log(output, 'cmd', 'User accepted freeze to requirements.txt');
-				await withPackageProgress('Updating requirements.txt (pip freeze)…', async () => {
-					await freezeToRequirements({ root, output });
-				});
-				void vscode.window.showInformationMessage(
-					'requirements.txt updated with pip freeze.',
-				);
-			} else {
-				log(output, 'cmd', 'User declined freeze to requirements.txt');
-				void vscode.window.showInformationMessage(
-					cleaned.length === 1
-						? `Installed ${cleaned[0]}.`
-						: `Installed ${cleaned.length} packages.`,
-				);
-			}
-		} catch (err) {
-			reportError(err);
-		}
+		await packageOps.addPackages({
+			root,
+			output,
+			getPythonPath: () => getSelectedPythonPath(),
+			venvExists,
+			specs: cleaned,
+			onRefresh: () => packagesViewRef.current?.refresh(),
+		});
 	};
 
 	const installPackageCmd = async () => {
@@ -212,7 +163,7 @@ export function activate(context: vscode.ExtensionContext) {
 		// Hide packages already in the venv from PyPI multi-select results.
 		let excludeNames = new Set<string>();
 		try {
-			const installed = await listPackages({ root, output });
+			const installed = await packageOps.listInstalled({ root, output });
 			excludeNames = new Set(installed.map((p) => p.name.toLowerCase()));
 			log(output, 'cmd', `Install picker excludes ${excludeNames.size} installed package(s)`);
 		} catch (err) {
@@ -261,17 +212,14 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		try {
-			logSection(output, `Uninstall package: ${name}`);
-			output.show(true);
-			await withPackageProgress(`Uninstalling ${name}…`, async () => {
-				await pipUninstallPackage({ root, output, name });
-			});
-			packagesViewRef.current?.refresh();
-			void vscode.window.showInformationMessage(`Uninstalled ${name}.`);
-		} catch (err) {
-			reportError(err);
-		}
+		await packageOps.removePackage({
+			root,
+			output,
+			getPythonPath: () => getSelectedPythonPath(),
+			venvExists,
+			name,
+			onRefresh: () => packagesViewRef.current?.refresh(),
+		});
 	};
 
 	const updatePackageByName = async (name: string) => {
@@ -284,23 +232,20 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		try {
-			logSection(output, `Update package: ${name}`);
-			output.show(true);
-			await withPackageProgress(`Updating ${name}…`, async () => {
-				await pipUpdatePackage({ root, output, name });
-			});
-			packagesViewRef.current?.refresh();
-			void vscode.window.showInformationMessage(`Updated ${name}.`);
-		} catch (err) {
-			reportError(err);
-		}
+		await packageOps.updatePackage({
+			root,
+			output,
+			getPythonPath: () => getSelectedPythonPath(),
+			venvExists,
+			name,
+			onRefresh: () => packagesViewRef.current?.refresh(),
+		});
 	};
 
 	const packagesView = new PackagesWebviewProvider(context.extensionUri, loadPackages, {
 		refresh: refreshPackages,
 		installPackage: installPackageCmd,
-		installFromRequirements,
+		installFromRequirements: syncOrInstall,
 		updatePackage: updatePackageByName,
 		uninstallPackage: uninstallPackageByName,
 	});
@@ -315,7 +260,11 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(
 			'pythonDependenciesManager.installFromRequirements',
-			installFromRequirements,
+			syncOrInstall,
+		),
+		vscode.commands.registerCommand(
+			'pythonDependenciesManager.syncDependencies',
+			syncOrInstall,
 		),
 		vscode.commands.registerCommand(
 			'pythonDependenciesManager.refreshPackages',
@@ -351,6 +300,7 @@ export function activate(context: vscode.ExtensionContext) {
 		),
 	);
 
+	// Task 8 will dual-prompt; keep pip-only auto-prompt for now.
 	void maybePromptInstallFromRequirements({
 		root: getWorkspaceRootFsPath(),
 		preferences,
@@ -362,7 +312,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const r = getWorkspaceRootFsPath();
 			return r ? venvExists(r) : false;
 		})(),
-		onInstall: installFromRequirements,
+		onInstall: syncOrInstall,
 	});
 
 	output.appendLine('Python Dependencies Manager activated.');

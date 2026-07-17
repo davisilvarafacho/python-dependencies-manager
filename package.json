@@ -23,6 +23,7 @@
   "keywords": [
     "python",
     "pip",
+    "uv",
     "venv",
     "requirements",
     "dependencies",
@@ -33,9 +34,11 @@
   ],
   "activationEvents": [
     "workspaceContains:requirements.txt",
+    "workspaceContains:pyproject.toml",
     "workspaceContains:.venv",
     "onView:pythonDependenciesManager.packages",
     "onCommand:pythonDependenciesManager.installFromRequirements",
+    "onCommand:pythonDependenciesManager.syncDependencies",
     "onCommand:pythonDependenciesManager.refreshPackages",
     "onCommand:pythonDependenciesManager.installPackage",
     "onCommand:pythonDependenciesManager.uninstallPackage",
@@ -68,6 +71,12 @@
         "title": "Install from requirements.txt",
         "category": "Python Dependencies",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "pythonDependenciesManager.syncDependencies",
+        "title": "Sync dependencies",
+        "category": "Python Dependencies",
+        "icon": "$(sync)"
       },
       {
         "command": "pythonDependenciesManager.refreshPackages",
@@ -108,11 +117,24 @@
         },
         {
           "command": "pythonDependenciesManager.installFromRequirements",
-          "when": "view == pythonDependenciesManager.packages",
+          "when": "view == pythonDependenciesManager.packages && !pythonDependenciesManager.isUv",
+          "group": "navigation@3"
+        },
+        {
+          "command": "pythonDependenciesManager.syncDependencies",
+          "when": "view == pythonDependenciesManager.packages && pythonDependenciesManager.isUv",
           "group": "navigation@3"
         }
       ],
       "commandPalette": [
+        {
+          "command": "pythonDependenciesManager.installFromRequirements",
+          "when": "!pythonDependenciesManager.isUv"
+        },
+        {
+          "command": "pythonDependenciesManager.syncDependencies",
+          "when": "pythonDependenciesManager.isUv"
+        },
         {
           "command": "pythonDependenciesManager.uninstallPackage",
           "when": "false"
