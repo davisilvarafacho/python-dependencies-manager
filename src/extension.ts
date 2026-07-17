@@ -307,18 +307,22 @@ export function activate(context: vscode.ExtensionContext) {
 		),
 	);
 
-	// Task 8 will dual-prompt; keep pip-only auto-prompt for now.
+	const root = getWorkspaceRootFsPath();
+	const manager = root ? resolvePackageManager(root) : undefined;
 	void maybePromptInstallFromRequirements({
-		root: getWorkspaceRootFsPath(),
+		root,
 		preferences,
-		requirementsExists: (() => {
-			const r = getWorkspaceRootFsPath();
-			return r ? requirementsExists(r) : false;
-		})(),
-		venvExists: (() => {
-			const r = getWorkspaceRootFsPath();
-			return r ? venvExists(r) : false;
-		})(),
+		manifestPresent: root && manager
+			? manager.id === 'uv'
+				? pyprojectExists(root)
+				: requirementsExists(root)
+			: false,
+		venvExists: root ? venvExists(root) : false,
+		message:
+			manager?.id === 'uv'
+				? 'pyproject.toml detected. Sync dependencies into .venv with uv?'
+				: 'requirements.txt detected. Install dependencies into .venv?',
+		primaryActionLabel: manager?.id === 'uv' ? 'Sync' : 'Install',
 		onInstall: syncOrInstall,
 	});
 
