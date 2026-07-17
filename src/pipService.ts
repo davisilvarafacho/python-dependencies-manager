@@ -7,9 +7,9 @@ import {
 	type ProcessRunner,
 	type RunProcessResult,
 } from './runProcess';
+import type { PackageInfo } from './packageManager/types';
 
-export type PackageInfo = { name: string; version: string };
-
+export type { PackageInfo } from './packageManager/types';
 export type { ProcessRunner };
 
 type PipBaseOptions = {
