@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import type * as vscode from 'vscode';
 import { createUvManager } from '../../packageManager/uvManager';
+import { venvPythonPath } from '../../paths';
 import type { ProcessRunner } from '../../runProcess';
 
 function fakeOutput(): vscode.OutputChannel {
@@ -112,14 +113,26 @@ suite('uvManager', () => {
 		assert.deepStrictEqual(calls[1], ['sync']);
 	});
 
-	test('listPackages parses uv pip list json', async () => {
-		const run: ProcessRunner = async () => ({
-			code: 0,
-			stdout: JSON.stringify([{ name: 'httpx', version: '0.27.0' }]),
-			stderr: '',
-		});
+	test('listPackages parses uv pip list json and pins --python to .venv', async () => {
+		let args: string[] | undefined;
+		const run: ProcessRunner = async (o) => {
+			args = o.args;
+			return {
+				code: 0,
+				stdout: JSON.stringify([{ name: 'httpx', version: '0.27.0' }]),
+				stderr: '',
+			};
+		};
 		const pkgs = await createUvManager().listPackages({ root, output, run });
 		assert.deepStrictEqual(pkgs, [{ name: 'httpx', version: '0.27.0' }]);
+		assert.ok(args);
+		assert.deepStrictEqual(args, [
+			'pip',
+			'list',
+			'--python',
+			venvPythonPath(root),
+			'--format=json',
+		]);
 	});
 
 	test('throws on non-zero exit', async () => {
@@ -131,6 +144,18 @@ suite('uvManager', () => {
 		await assert.rejects(
 			() => createUvManager().syncManifest({ root, output, run }),
 			/uv sync failed \(exit code 1\): boom/,
+		);
+	});
+
+	test('runUv maps ENOENT to clear uv-not-found error', async () => {
+		const run: ProcessRunner = async () => {
+			const err = new Error('spawn uv ENOENT');
+			(err as NodeJS.ErrnoException).code = 'ENOENT';
+			throw err;
+		};
+		await assert.rejects(
+			() => createUvManager().syncManifest({ root, output, run }),
+			/uv not found on PATH\. Install uv or open a pip\/requirements project\./,
 		);
 	});
 });

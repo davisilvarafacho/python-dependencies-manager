@@ -1,4 +1,5 @@
 import { log } from '../log';
+import { venvPythonPath } from '../paths';
 import {
 	runProcess,
 	type ProcessRunner,
@@ -29,12 +30,23 @@ async function runUv(
 	const run = runner(ctx);
 
 	log(output, 'uv', `Running: uv ${args.join(' ')}`);
-	const result = await run({
-		command: 'uv',
-		args,
-		cwd: root,
-		output,
-	});
+	let result: RunProcessResult;
+	try {
+		result = await run({
+			command: 'uv',
+			args,
+			cwd: root,
+			output,
+		});
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		if (/ENOENT|not found/i.test(msg)) {
+			throw new Error(
+				'uv not found on PATH. Install uv or open a pip/requirements project.',
+			);
+		}
+		throw err;
+	}
 	failOnNonZero(result, action);
 	log(output, 'uv', `${action} completed successfully`);
 	return result;
@@ -82,7 +94,11 @@ export function createUvManager(): PackageManager {
 		},
 
 		async listPackages(ctx): Promise<PackageInfo[]> {
-			const result = await runUv(ctx, ['pip', 'list', '--format=json'], 'list');
+			const result = await runUv(
+				ctx,
+				['pip', 'list', '--python', venvPythonPath(ctx.root), '--format=json'],
+				'list',
+			);
 			const stdout = result.stdout.trim();
 			if (!stdout) {
 				return [];
